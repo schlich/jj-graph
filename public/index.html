@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="color-scheme" content="dark light">
+  <title>jj-graph</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="brand" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M7 4v9a4 4 0 0 0 4 4h6M7 13V20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="7" cy="4" r="2.4" fill="var(--accent)"/><circle cx="17" cy="17" r="2.4" fill="var(--bg)" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="20" r="2.4" fill="var(--bg)" stroke="currentColor" stroke-width="2"/></svg>
+    </span>
+    <h1 id="repo">jj-graph</h1>
+    <button id="revsetBtn" class="ghost revset" title="Change the revset"><span id="revsetText">…</span></button>
+    <button id="jjrBtn" class="ghost jjr-btn" title="jjr guardrails, Jev triage, and patterns">jjr</button>
+    <button id="cmdBtn" class="ghost" title="Dry-run any jj command">jj ▸</button>
+    <button id="fitBtn" class="ghost" title="Fit the graph" aria-label="Fit the graph">⤢</button>
+  </header>
+
+  <nav id="timeline" aria-label="Operation log"></nav>
+
+  <main id="viewport" aria-label="Revision graph">
+    <div id="world">
+      <svg id="graph" xmlns="http://www.w3.org/2000/svg">
+        <g id="edges"></g>
+        <g id="nodes"></g>
+        <g id="overlay"></g>
+      </svg>
+      <div id="labels"></div>
+    </div>
+    <div id="banner" hidden></div>
+    <div id="empty" hidden></div>
+  </main>
+
+  <section id="inspector" hidden aria-label="Selected change"></section>
+
+  <footer id="planbar" aria-label="Dry run"></footer>
+
+  <div id="status" class="status">
+    <span id="mode" class="mode">NORMAL</span>
+    <span id="hints" class="hints"></span>
+  </div>
+
+  <dialog id="sheet" closedby="any" aria-labelledby="sheetTitle">
+    <div class="sheet-head">
+      <h2 id="sheetTitle"></h2>
+      <button id="sheetClose" class="ghost" aria-label="Close">✕</button>
+    </div>
+    <div id="sheetBody"></div>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="live" class="visually-hidden" aria-live="polite"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jjr — A Framework for Jujutsu (jj)</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f6f4ee;
+      --surface: #ffffff;
+      --well: #ede9df;
+      --rule: #d6d0c2;
+      --rule-strong: #b9b19f;
+      --ink: #1a1d21;
+      --ink-2: #4b515c;
+      --muted: #6c727d;
+      --accent: #0b7a5c;
+      --accent-soft: #e3f2ed;
+      --dry: #a85500;
+      --dry-soft: #fdf1df;
+      --past: #3e52b5;
+      --past-soft: #eaeeff;
+      --danger: #b82d27;
+      --danger-soft: #fceae9;
+      --code-bg: #f0ece2;
+      --term-bg: #16181d;
+      --term-ink: #e5e7ec;
+      --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --paper: #111317;
+        --surface: #171a20;
+        --well: #1e222a;
+        --rule: #2b303a;
+        --rule-strong: #414856;
+        --ink: #e6e8ed;
+        --ink-2: #b4bac6;
+        --muted: #848b99;
+        --accent: #52d6a8;
+        --accent-soft: #102a22;
+        --dry: #f5aa4a;
+        --dry-soft: #2a2011;
+        --past: #92a6ff;
+        --past-soft: #161c33;
+        --danger: #ff7e73;
+        --danger-soft: #2e1717;
+        --code-bg: #1c2028;
+        --term-bg: #0c0e12;
+        --term-ink: #e6e8ed;
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --paper: #111317;
+      --surface: #171a20;
+      --well: #1e222a;
+      --rule: #2b303a;
+      --rule-strong: #414856;
+      --ink: #e6e8ed;
+      --ink-2: #b4bac6;
+      --muted: #848b99;
+      --accent: #52d6a8;
+      --accent-soft: #102a22;
+      --dry: #f5aa4a;
+      --dry-soft: #2a2011;
+      --past: #92a6ff;
+      --past-soft: #161c33;
+      --danger: #ff7e73;
+      --danger-soft: #2e1717;
+      --code-bg: #1c2028;
+      --term-bg: #0c0e12;
+      --term-ink: #e6e8ed;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.65 var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 2px; }
+
+    code, pre, kbd, .mono { font-family: var(--mono); }
+    code {
+      font-size: 0.875em;
+      background: var(--code-bg);
+      padding: 0.12em 0.36em;
+      border-radius: 3px;
+    }
+    pre {
+      margin: 1.25rem 0;
+      padding: 1rem 1.15rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    pre code { background: none; padding: 0; font-size: inherit; }
+
+    /* Top utility strip */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--paper);
+      border-bottom: 1px solid var(--rule);
+    }
+    .topbar-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0.7rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .wordmark {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      color: var(--ink);
+      text-decoration: none;
+      font: 600 15px var(--mono);
+      letter-spacing: -0.01em;
+    }
+    .wordmark small {
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 12px;
+    }
+    .topbar-links {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 1.1rem;
+      font-size: 13.5px;
+    }
+    .topbar-links a { color: var(--ink-2); text-decoration: none; }
+    .topbar-links a:hover { color: var(--ink); }
+    .theme-btn {
+      font: 500 12px var(--mono);
+      color: var(--ink-2);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 0.3rem 0.6rem;
+      cursor: pointer;
+    }
+    .theme-btn:hover { border-color: var(--rule-strong); color: var(--ink); }
+
+    /* Two-column editorial layout */
+    .shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 5rem;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 3.25rem;
+      align-items: start;
+    }
+
+    .toc {
+      position: sticky;
+      top: 4.25rem;
+      font-size: 13.5px;
+    }
+    .toc-label {
+      font: 600 11px var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 0.75rem;
+    }
+    .toc ol {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      border-left: 1px solid var(--rule);
+    }
+    .toc li a {
+      display: flex;
+      gap: 0.55rem;
+      padding: 0.34rem 0 0.34rem 0.9rem;
+      color: var(--muted);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      margin-left: -1px;
+      line-height: 1.35;
+    }
+    .toc li a:hover { color: var(--ink); }
+    .toc li a.active {
+      color: var(--ink);
+      font-weight: 600;
+      border-left-color: var(--accent);
+    }
+    .toc .num { font: 500 11.5px var(--mono); color: var(--muted); }
+    .toc-meta {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--rule);
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* Editorial prose column */
+    main { max-width: 760px; min-width: 0; }
+
+    .hero {
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: 2.75rem;
+    }
+    .kicker {
+      font: 600 11.5px var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.7rem;
+    }
+    h1 {
+      font: 400 clamp(2rem, 4vw, 2.75rem)/1.14 var(--serif);
+      letter-spacing: -0.015em;
+      margin: 0 0 1rem;
+    }
+    .lede {
+      font-size: 18px;
+      line-height: 1.6;
+      color: var(--ink-2);
+      margin: 0 0 1.4rem;
+    }
+    .meta-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.4rem;
+      font: 12.5px var(--mono);
+      color: var(--muted);
+    }
+    .meta-strip strong { color: var(--ink); font-weight: 600; }
+
+    section.doc-section {
+      margin-bottom: 3.5rem;
+      padding-bottom: 3rem;
+      border-bottom: 1px solid var(--rule);
+      scroll-margin-top: 4.5rem;
+    }
+    section.doc-section:last-child { border-bottom: 0; }
+
+    .sec-head {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      margin-bottom: 0.9rem;
+    }
+    .sec-num {
+      font: 600 12px var(--mono);
+      color: var(--muted);
+    }
+    h2 {
+      font: 400 1.75rem/1.22 var(--serif);
+      letter-spacing: -0.01em;
+      margin: 0;
+    }
+    h3 {
+      font: 600 1.05rem/1.35 var(--sans);
+      margin: 1.75rem 0 0.55rem;
+    }
+    p { margin: 0 0 1rem; color: var(--ink-2); }
+    p strong { color: var(--ink); }
+
+    ul.plain {
+      margin: 0 0 1.1rem;
+      padding-left: 1.25rem;
+      color: var(--ink-2);
+    }
+    ul.plain li { margin-bottom: 0.45rem; }
+    ul.plain strong { color: var(--ink); }
+
+    /* Clean editorial tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.25rem 0;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--rule);
+      vertical-align: top;
+    }
+    th {
+      font: 600 11.5px var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--rule-strong);
+    }
+    td { color: var(--ink-2); }
+    td strong { color: var(--ink); }
+
+    /* Interactive paper-and-ink figures */
+    figure.instrument {
+      margin: 1.5rem 0 1.75rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    .inst-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.7rem 1rem;
+      background: var(--well);
+      border-bottom: 1px solid var(--rule);
+      font-size: 12.5px;
+    }
+    .inst-title {
+      font: 600 12px var(--mono);
+      color: var(--ink);
+    }
+    .inst-body { padding: 1.1rem 1.15rem; }
+    figcaption {
+      padding: 0.65rem 1rem;
+      border-top: 1px solid var(--rule);
+      font-size: 13px;
+      color: var(--muted);
+      background: var(--paper);
+    }
+
+    /* Controls */
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .btn {
+      font: 500 12.5px var(--mono);
+      padding: 0.38rem 0.7rem;
+      border: 1px solid var(--rule-strong);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--well); }
+    .btn.active {
+      background: var(--ink);
+      color: var(--paper);
+      border-color: var(--ink);
+    }
+    .btn.accent {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+    input[type="text"] {
+      width: 100%;
+      font: 14px var(--mono);
+      padding: 0.5rem 0.7rem;
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--rule-strong);
+      border-radius: 4px;
+    }
+    input[type="text"]:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    /* Semantic callout / result strips */
+    .callout {
+      padding: 0.8rem 0.95rem;
+      border: 1px solid var(--rule);
+      border-left: 3px solid var(--accent);
+      background: var(--paper);
+      border-radius: 3px;
+      font-size: 13.5px;
+      margin-top: 0.85rem;
+    }
+    .callout.danger { border-left-color: var(--danger); background: var(--danger-soft); }
+    .callout.dry { border-left-color: var(--dry); background: var(--dry-soft); }
+    .callout.past { border-left-color: var(--past); background: var(--past-soft); }
+    .callout.accent { border-left-color: var(--accent); background: var(--accent-soft); }
+    .callout-title {
+      font: 600 12.5px var(--mono);
+      color: var(--ink);
+      margin-bottom: 0.25rem;
+    }
+    .callout p { margin: 0.25rem 0 0; font-size: 13.5px; color: var(--ink); }
+
+    /* Two-part dependency plane */
+    .dep-grid {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: 1.25rem;
+      align-items: center;
+    }
+    .slider-block { margin-bottom: 0.9rem; }
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font: 500 12.5px var(--mono);
+      margin-bottom: 0.25rem;
+    }
+
+    /* TUI & GUI preview panes */
+    .tui-box {
+      background: var(--term-bg);
+      color: var(--term-ink);
+      font: 12.5px/1.6 var(--mono);
+      padding: 1rem 1.1rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .gui-list { display: grid; gap: 0.5rem; }
+    .gui-row {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.6rem 0.8rem;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      background: var(--paper);
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      color: var(--ink);
+      font: inherit;
+    }
+    .gui-row:hover { border-color: var(--rule-strong); }
+    .gui-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+    .gui-row.immutable { opacity: 0.75; background: var(--well); }
+    .gui-glyph { font: 700 14px var(--mono); width: 1.2rem; text-align: center; }
+    .gui-cid { font: 600 12.5px var(--mono); color: var(--accent); }
+    .gui-sha { font: 12px var(--mono); color: var(--muted); }
+    .gui-title { font-size: 14px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag {
+      display: inline-block;
+      font: 500 11px var(--mono);
+      padding: 0.1rem 0.42rem;
+      border-radius: 3px;
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      background: var(--surface);
+    }
+    .tag.accent { border-color: var(--accent); color: var(--accent); }
+    .tag.dry { border-color: var(--dry); color: var(--dry); }
+    .tag.danger { border-color: var(--danger); color: var(--danger); }
+    .tag.past { border-color: var(--past); color: var(--past); }
+
+    .triage-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.6rem;
+      margin-top: 0.9rem;
+      padding-top: 0.9rem;
+      border-top: 1px solid var(--rule);
+    }
+    .metric {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 0.55rem 0.65rem;
+    }
+    .metric-k { font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .metric-v { font: 600 14px var(--mono); color: var(--ink); margin-top: 0.15rem; }
+    .metric-s { font: 11.5px var(--mono); color: var(--muted); }
+
+    /* Pattern cards (quiet, editorial) */
+    .pattern-item {
+      padding: 1rem 0;
+      border-top: 1px solid var(--rule);
+    }
+    .pattern-item:first-of-type { border-top: 0; padding-top: 0.25rem; }
+    .pattern-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+    .pattern-head h3 { margin: 0; }
+    .pattern-tag { font: 11.5px var(--mono); color: var(--muted); }
+
+    /* Launch post box */
+    .prose-sheet {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 1.4rem 1.5rem;
+      font-size: 14.5px;
+    }
+    .prose-sheet h3 { font-family: var(--serif); font-size: 1.25rem; font-weight: 400; margin-top: 0; }
+
+    @media (max-width: 880px) {
+      .shell { grid-template-columns: 1fr; gap: 1.5rem; padding-top: 1.5rem; }
+      .toc { position: static; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+      .toc ol { display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; border-left: 0; }
+      .toc li a { border-left: 0; padding: 0.2rem 0; margin-left: 0; }
+      .toc-meta { display: none; }
+      .dep-grid { grid-template-columns: 1fr; }
+      .triage-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="wordmark" href="#top">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M7 4v9a4 4 0 0 0 4 4h6M7 13V20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="7" cy="4" r="2.4" fill="var(--accent)"/>
+          <circle cx="17" cy="17" r="2.4" fill="var(--paper)" stroke="currentColor" stroke-width="2"/>
+          <circle cx="7" cy="20" r="2.4" fill="var(--paper)" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        <span>jjr</span>
+        <small>v0.1 · on jj-graph</small>
+      </a>
+      <nav class="topbar-links">
+        <a href="/">Graph UI</a>
+        <a href="#jev">Jev Decisions</a>
+        <a href="#guardrails">Guardrails</a>
+        <a href="#evals">Evals</a>
+        <button id="themeToggle" class="theme-btn" type="button">theme</button>
+      </nav>
+    </div>
+  </header>
+
+  <div class="shell" id="top">
+    <aside class="toc" aria-label="Contents">
+      <div class="toc-label">Reference</div>
+      <ol id="tocList">
+        <li><a href="#overview"><span class="num">01</span> Architecture</a></li>
+        <li><a href="#model"><span class="num">02</span> Identity &amp; Graph</a></li>
+        <li><a href="#jev"><span class="num">03</span> Jev System-One</a></li>
+        <li><a href="#guardrails"><span class="num">04</span> Guardrails</a></li>
+        <li><a href="#patterns"><span class="num">05</span> SDLC Patterns</a></li>
+        <li><a href="#ui"><span class="num">06</span> Portable TUI / GUI</a></li>
+        <li><a href="#evals"><span class="num">07</span> Agentic Evals</a></li>
+        <li><a href="#launch"><span class="num">08</span> Launch Post</a></li>
+      </ol>
+      <div class="toc-meta">
+        Zero runtime dependencies.<br>
+        Node 20+ ESM &amp; TypeScript declarations.<br>
+        Backed by <code>jj 0.47+</code> dry-run ops.
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <p class="kicker">Version Control Framework for Jujutsu (jj)</p>
+        <h1>Structured forms, dry-run guardrails, and calibrated machine decisions on top of Jujutsu.</h1>
+        <p class="lede">
+          Jujutsu gives engineers stable Change IDs, anonymous branches, algebraic conflicts, and an undoable operation log.
+          <strong>jjr</strong> turns those primitives into a coherent library and interactive workspace—combining deterministic
+          graph invariants, <strong>TypeSafe AI's Jev</strong> decision model for fast calibrated judgment, and a light LLM layer
+          reserved strictly for naming and prose.
+        </p>
+        <div class="meta-strip">
+          <span><strong>Engine:</strong> <code>jj --at-op ... --no-integrate-operation</code></span>
+          <span><strong>System One:</strong> TypeSafe Jev (<code>/v1/systemone</code>)</span>
+          <span><strong>System Two:</strong> Light LLM Narrator</span>
+        </div>
+      </header>
+
+      <!-- 01 ARCHITECTURE -->
+      <section class="doc-section" id="overview">
+        <div class="sec-head">
+          <span class="sec-num">01</span>
+          <h2>Architecture</h2>
+        </div>
+        <p>
+          jjr is organized around a strict separation between <strong>hard invariants</strong> (deterministic rules that never bend),
+          <strong>fast calibrated judgment</strong> (TypeSafe Jev evaluating parallel typed questions over a single diff state),
+          and <strong>prose generation</strong> (a lightweight LLM called only when a human needs a title, bookmark slug, or explanation).
+          Every graph rewrite executes first as an uncommitted Jujutsu dry-run operation inside <code>jj-graph</code>, so you see the
+          real resulting DAG—conflicts and auto-rebases included—before touching the operation log or working copy.
+        </p>
+
+        <figure class="instrument">
+          <div class="inst-head">
+            <span class="inst-title">Figure 1 · jjr Execution &amp; Decision Architecture</span>
+            <span class="mono" style="color:var(--muted)">jjr/index.mjs ↔ server.mjs</span>
+          </div>
+          <div class="inst-body">
+            <svg viewBox="0 0 680 250" width="100%" role="img" aria-label="jjr architecture diagram showing guardrails, Jev System One, light LLM narrator, and jj dry-run engine">
+              <defs>
+                <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M1,1 L9,5 L1,9" fill="none" stroke="var(--rule-strong)" stroke-width="1.6"/>
+                </marker>
+                <marker id="arr-acc" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M1,1 L9,5 L1,9" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+                </marker>
+              </defs>
+
+              <!-- Boxes -->
+              <rect x="12" y="20" width="150" height="54" rx="4" fill="var(--paper)" stroke="var(--rule-strong)"/>
+              <text x="87" y="43" text-anchor="middle" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--ink)">Human / Agent</text>
+              <text x="87" y="60" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--muted)">TUI · GUI · API</text>
+
+              <rect x="206" y="14" width="212" height="66" rx="4" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4"/>
+              <text x="312" y="37" text-anchor="middle" font-family="var(--mono)" font-size="12" font-weight="600" fill="var(--ink)">JjrGuardrailPipeline</text>
+              <text x="312" y="54" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--muted)">6 hard rules + JjrGraph invariants</text>
+              <text x="312" y="69" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--accent)">jjr/guardrails.mjs · jjr/graph.mjs</text>
+
+              <rect x="462" y="14" width="206" height="66" rx="4" fill="var(--dry-soft)" stroke="var(--dry)"/>
+              <text x="565" y="37" text-anchor="middle" font-family="var(--mono)" font-size="12" font-weight="600" fill="var(--ink)">jj-graph Dry-Run Engine</text>
+              <text x="565" y="54" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--dry)">--no-integrate-operation</text>
+              <text x="565" y="69" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--muted)">Preview DAG, then op integrate</text>
+
+              <!-- System One: TypeSafe Jev -->
+              <rect x="206" y="124" width="212" height="106" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/>
+              <text x="312" y="146" text-anchor="middle" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--accent)">SYSTEM ONE · TypeSafe Jev</text>
+              <text x="312" y="164" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--ink)">POST /v1/systemone (jev-latest)</text>
+              <text x="312" y="184" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">• choice(): intent, recovery axis, hunk arm</text>
+              <text x="312" y="200" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">• noul(): dependency test, entanglement</text>
+              <text x="312" y="216" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">• score(): readiness, blast radius</text>
+
+              <!-- System Two: Light LLM -->
+              <rect x="462" y="124" width="206" height="106" rx="4" fill="var(--paper)" stroke="var(--rule-strong)"/>
+              <text x="565" y="146" text-anchor="middle" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--ink)">SYSTEM TWO · JjrNarrator</text>
+              <text x="565" y="164" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--muted)">Light LLM (prose only)</text>
+              <text x="565" y="186" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">• Conventional change titles</text>
+              <text x="565" y="202" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">• Bookmark slug generation</text>
+              <text x="565" y="218" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">• Two-sentence diagnostic summaries</text>
+
+              <!-- Portable UI -->
+              <rect x="12" y="124" width="150" height="106" rx="4" fill="var(--paper)" stroke="var(--rule-strong)"/>
+              <text x="87" y="148" text-anchor="middle" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--ink)">Portable UI Kit</text>
+              <text x="87" y="168" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">jjr/ui/core.mjs</text>
+              <text x="87" y="189" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">Pure ViewModels</text>
+              <text x="87" y="206" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--ink)">tui.mjs  |  gui.mjs</text>
+
+              <!-- Connectors -->
+              <line x1="162" y1="47" x2="202" y2="47" stroke="var(--rule-strong)" stroke-width="1.5" marker-end="url(#arr)"/>
+              <line x1="418" y1="47" x2="458" y2="47" stroke="var(--rule-strong)" stroke-width="1.5" marker-end="url(#arr)"/>
+              <line x1="312" y1="80" x2="312" y2="120" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arr-acc)"/>
+              <line x1="418" y1="177" x2="458" y2="177" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arr-acc)"/>
+              <line x1="206" y1="177" x2="166" y2="177" stroke="var(--rule-strong)" stroke-width="1.5" marker-end="url(#arr)"/>
+              <line x1="87" y1="124" x2="87" y2="78" stroke="var(--rule-strong)" stroke-width="1.5" marker-end="url(#arr)"/>
+            </svg>
+          </div>
+          <figcaption>
+            Deterministic guardrails gate every command first. TypeSafe Jev provides fast parallel calibrated probabilities;
+            the light LLM is called only downstream when prose is requested.
+          </figcaption>
+        </figure>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Responsibility</th>
+              <th>Key Exports</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>jjr/types.mjs</code></td>
+              <td>Identity–state branded validation</td>
+              <td><code>asChangeId</code>, <code>asCommitId</code>, <code>asOpId</code>, <code>JjrTypeError</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/graph.mjs</code></td>
+              <td>In-memory DAG, zones &amp; diagnostics</td>
+              <td><code>JjrGraph</code>, <code>fromJjGraphNodes</code>, <code>evaluateDependency</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/jev.mjs</code></td>
+              <td>TypeSafe Jev System-One client &amp; workflows</td>
+              <td><code>JevClient</code>, <code>choice</code>, <code>score</code>, <code>noul</code>, <code>JjrJevAssistant</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/guardrails.mjs</code></td>
+              <td>Composable pre-flight safety pipeline</td>
+              <td><code>JjrGuardrailPipeline</code>, 6 default rules, <code>evaluateWithJev</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/patterns.mjs</code></td>
+              <td>Self-evident SDLC &amp; recovery recipes</td>
+              <td><code>JjrPatterns</code>, <code>planTimeTravelRecovery</code>, <code>suggestPatternsForGraph</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/narrator.mjs</code></td>
+              <td>Light LLM naming &amp; diagnostic prose</td>
+              <td><code>JjrNarrator</code>, <code>OpenAiCompatibleTransport</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/ui/*.mjs</code></td>
+              <td>Render-agnostic TUI &amp; GUI ViewModels</td>
+              <td><code>buildDagGraphViewModel</code>, <code>renderDagTui</code>, <code>toGuiDagRows</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 02 IDENTITY & GRAPH -->
+      <section class="doc-section" id="model">
+        <div class="sec-head">
+          <span class="sec-num">02</span>
+          <h2>Identity–State Separation &amp; Graph Model</h2>
+        </div>
+        <p>
+          In Jujutsu, a <strong>ChangeId</strong> (reverse-hex letters <code>k–z</code>) identifies a logical unit of work
+          across every rebase, squash, and amendment. A <strong>CommitId</strong> (hex <code>0–9a–f</code>) identifies one
+          immutable point-in-time snapshot underneath it. Mixing them up causes fragile scripts and agent retries that target
+          stale commits. jjr brands both at the TypeScript type boundary (<code>jjr/index.d.ts</code>) and validates them at runtime.
+        </p>
+
+        <figure class="instrument">
+          <div class="inst-head">
+            <span class="inst-title">Figure 2 · Interactive Identity–State Validator</span>
+            <div class="btn-row">
+              <button class="btn" type="button" data-sample="kmpqrstuvwxyzklm">ChangeId</button>
+              <button class="btn" type="button" data-sample="017147ef9a2c4b88">CommitId</button>
+              <button class="btn" type="button" data-sample="not-an-id!">Invalid</button>
+            </div>
+          </div>
+          <div class="inst-body">
+            <input id="idInput" type="text" value="kmpqrstuvwxyzklm" spellcheck="false" autocomplete="off" aria-label="Test ChangeId or CommitId">
+            <div id="idOutput" class="callout accent"></div>
+          </div>
+          <figcaption>
+            Runtime check implemented by <code>asChangeId()</code> and <code>asCommitId()</code> in <code>jjr/types.mjs</code>.
+          </figcaption>
+        </figure>
+
+        <h3>Two Zones &amp; Dual Time Axes</h3>
+        <p>
+          <code>JjrGraph</code> partitions every loaded revision into <code>immutable</code> (shared bedrock such as <code>trunk()</code>
+          and tags) or <code>mutable</code> (local work you can freely rewrite). Recovery operates across two orthogonal time axes:
+          the repository-wide <strong>Operation Log</strong> (<code>jj op restore</code>) and per-change <strong>Evolution Log</strong>
+          (<code>jj restore --from &lt;commit&gt; --to &lt;change&gt;</code>), preferring surgical single-change recovery whenever sibling arms have independent edits.
+        </p>
+      </section>
+
+      <!-- 03 JEV SYSTEM-ONE -->
+      <section class="doc-section" id="jev">
+        <div class="sec-head">
+          <span class="sec-num">03</span>
+          <h2>TypeSafe Jev (System One) Integration</h2>
+        </div>
+        <p>
+          <strong>Jev</strong> is TypeSafe AI's non-autoregressive <em>System One</em> decision model (<code>POST /v1/systemone</code>).
+          Rather than streaming tokens and begging a chat model for valid JSON, jjr sends a single structured <code>state</code>
+          and evaluates multiple typed questions in parallel—receiving <strong>calibrated probabilities</strong> and confidence scores
+          at roughly 40–200× the speed and a fraction of the cost of frontier LLMs.
+        </p>
+
+        <ul class="plain">
+          <li><strong>Single-Pass Change Triage (<code>triageChange</code>):</strong> Batches 4 questions in one call: <code>intent</code> (<code>choice</code>), structural/behavioral <code>entangled</code> (<code>noul</code>), <code>publishReadiness</code> (<code>score</code>), and <code>hasDebugOrSecrets</code> (<code>noul</code>).</li>
+          <li><strong>Two-Part Dependency Gate (<code>assessDependency</code>):</strong> Runs two parallel <code>noul</code> propositions—<em>Causal Necessity</em> and <em>Independent Reviewability</em>. When either probability lands inside the ambiguous band (<code>0.28–0.72</code>), jjr pauses to confirm with the developer instead of guessing.</li>
+          <li><strong>Behind-the-Scenes Guardrail Augmentation (<code>evaluateActionRisk</code>):</strong> Catches unmarked local scratchpads before a push and scores blast radius to recommend dry-run previews automatically.</li>
+          <li><strong>Recovery &amp; Absorb Routing (<code>recommendRecovery</code>, <code>routeHunk</code>):</strong> Chooses surgical <code>evolog</code> restore vs. repo-wide <code>op restore</code>, and ranks candidate feature arms when a working-copy fixup atop a megamerge has ambiguous ownership.</li>
+        </ul>
+
+        <pre><code>import { JevClient, JjrJevAssistant, choice, noul, score } from './jjr/index.mjs';
+
+const jev = new JjrJevAssistant(new JevClient({
+  // Reads process.env.TYPESAFE_API_KEY automatically; defaults to https://api.typesafe.ai
+  // Also accepts an existing @typesafe-ai/sdk client via { sdkClient }
+  defaultModel: 'jev-latest',
+}));
+
+const { answers } = await jev.triageChange({
+  changeId: 'tzpzvowk',
+  description: 'refactor: extract session validator',
+  touchedPaths: ['src/auth/session.ts'],
+  diffExcerpt: '...',
+});
+// answers.intent.choice          -> 'structural' (confidence: 0.91)
+// answers.entangled.noul         -> 0.14
+// answers.publishReadiness.legend -> 'ready-to-land' (score: 2.86)</code></pre>
+
+        <figure class="instrument">
+          <div class="inst-head">
+            <span class="inst-title">Figure 3 · Two-Part Dependency Plane (Calibrated Jev <code>noul</code> Probabilities)</span>
+            <div class="btn-row">
+              <button class="btn" type="button" data-dep="0.11,0.89">Unrelated</button>
+              <button class="btn" type="button" data-dep="0.88,0.14">Entangled</button>
+              <button class="btn" type="button" data-dep="0.91,0.86">True Stack</button>
+              <button class="btn" type="button" data-dep="0.54,0.61">Ambiguous</button>
+            </div>
+          </div>
+          <div class="inst-body">
+            <div class="dep-grid">
+              <svg id="depPlane" viewBox="0 0 220 220" width="220" height="220" aria-label="2D dependency decision plane">
+                <!-- Quadrants -->
+                <rect x="26" y="14" width="180" height="180" fill="var(--paper)" stroke="var(--rule-strong)"/>
+                <!-- Parallelize (top-left: low causal, high reviewable) -->
+                <rect x="26" y="14" width="50.4" height="50.4" fill="var(--dry-soft)"/>
+                <!-- Stack (top-right: high causal, high reviewable) -->
+                <rect x="155.6" y="14" width="50.4" height="50.4" fill="var(--accent-soft)"/>
+                <!-- Collapse (bottom-right & bottom-left: low reviewable) -->
+                <rect x="26" y="143.6" width="50.4" height="50.4" fill="var(--danger-soft)"/>
+                <rect x="155.6" y="143.6" width="50.4" height="50.4" fill="var(--danger-soft)"/>
+                <!-- Threshold lines at 0.28 and 0.72 -->
+                <line x1="76.4" y1="14" x2="76.4" y2="194" stroke="var(--rule-strong)" stroke-dasharray="3 3"/>
+                <line x1="155.6" y1="14" x2="155.6" y2="194" stroke="var(--rule-strong)" stroke-dasharray="3 3"/>
+                <line x1="26" y1="64.4" x2="206" y2="64.4" stroke="var(--rule-strong)" stroke-dasharray="3 3"/>
+                <line x1="26" y1="143.6" x2="206" y2="143.6" stroke="var(--rule-strong)" stroke-dasharray="3 3"/>
+                <!-- Region labels -->
+                <text x="51" y="42" text-anchor="middle" font-family="var(--mono)" font-size="8.5" fill="var(--dry)">PARALLEL</text>
+                <text x="181" y="42" text-anchor="middle" font-family="var(--mono)" font-size="8.5" fill="var(--accent)">STACK</text>
+                <text x="116" y="106" text-anchor="middle" font-family="var(--mono)" font-size="8.5" fill="var(--past)">CONFIRM</text>
+                <text x="116" y="118" text-anchor="middle" font-family="var(--mono)" font-size="7.5" fill="var(--muted)">(0.28–0.72)</text>
+                <text x="51" y="172" text-anchor="middle" font-family="var(--mono)" font-size="8.5" fill="var(--danger)">SQUASH</text>
+                <text x="181" y="172" text-anchor="middle" font-family="var(--mono)" font-size="8.5" fill="var(--danger)">SQUASH</text>
+                <!-- Axes -->
+                <text x="116" y="210" text-anchor="middle" font-family="var(--mono)" font-size="9" fill="var(--muted)">causal necessity p →</text>
+                <text x="11" y="104" text-anchor="middle" font-family="var(--mono)" font-size="9" fill="var(--muted)" transform="rotate(-90 11 104)">reviewable p →</text>
+                <!-- Live point -->
+                <circle id="depDot" cx="46" cy="34" r="6" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/>
+              </svg>
+
+              <div>
+                <div class="slider-block">
+                  <div class="slider-label">
+                    <span>childCausallyDependsOnBase (<code>noul</code>)</span>
+                    <span id="causalVal">0.11</span>
+                  </div>
+                  <input id="causalRange" type="range" min="0.01" max="0.99" step="0.01" value="0.11">
+                </div>
+                <div class="slider-block">
+                  <div class="slider-label">
+                    <span>baseIndependentlyReviewable (<code>noul</code>)</span>
+                    <span id="reviewVal">0.89</span>
+                  </div>
+                  <input id="reviewRange" type="range" min="0.01" max="0.99" step="0.01" value="0.89">
+                </div>
+                <div id="depOutput" class="callout dry"></div>
+              </div>
+            </div>
+          </div>
+          <figcaption>
+            Calibrated probabilities let jjr act decisively in the corners and ask a human in the shaded central cross.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- 04 GUARDRAILS -->
+      <section class="doc-section" id="guardrails">
+        <div class="sec-head">
+          <span class="sec-num">04</span>
+          <h2>Guardrail Pipeline</h2>
+        </div>
+        <p>
+          Every mutation, push, Git interop command, and workspace action passes through <code>JjrGuardrailPipeline</code>
+          before touching the repository—including inside <code>jj-graph</code>'s <code>POST /api/dry</code> handler.
+          Blockers always include a concrete remediation command rather than a dead-end error.
+        </p>
+
+        <figure class="instrument">
+          <div class="inst-head">
+            <span class="inst-title">Figure 4 · Guardrail Pipeline Workbench</span>
+            <span class="mono" style="color:var(--muted)">jjr/guardrails.mjs</span>
+          </div>
+          <div class="inst-body">
+            <div class="btn-row" id="guardBtns">
+              <button class="btn active" type="button" data-guard="megamerge">Push megamerge</button>
+              <button class="btn" type="button" data-guard="immutable">Rewrite immutable()</button>
+              <button class="btn" type="button" data-guard="colocated">git checkout (colocated)</button>
+              <button class="btn" type="button" data-guard="divergent">Stack on divergent()</button>
+              <button class="btn" type="button" data-guard="unverified">Push conflicted arm</button>
+              <button class="btn" type="button" data-guard="workspace">workspace add (branch)</button>
+              <button class="btn" type="button" data-guard="clean">Push clean arm</button>
+            </div>
+            <div id="guardOutput" class="callout danger"></div>
+          </div>
+          <figcaption>
+            All six deterministic rules compose linearly; <code>evaluateWithJev()</code> adds calibrated scratchpad and blast-radius advisories when hard rules pass.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- 05 SDLC PATTERNS -->
+      <section class="doc-section" id="patterns">
+        <div class="sec-head">
+          <span class="sec-num">05</span>
+          <h2>Self-Evident SDLC Patterns</h2>
+        </div>
+        <p>
+          Rather than memorizing flags, jjr exposes opinionated pattern builders in <code>jjr/patterns.mjs</code>.
+          Each recipe emits both human-readable commands and structured argument arrays that preview safely inside <code>jj-graph</code>'s dry-run engine.
+        </p>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>Tidy First? (Structural Below Behavioral)</h3>
+            <span class="pattern-tag">JjrPatterns.tidyFirstBelow()</span>
+          </div>
+          <p>Slip zero-behavior-change cleanup underneath active feature work so reviewers can approve mechanical refactors separately and revert behavioral changes cleanly.</p>
+          <pre><code>jj new -B kmpqrstu -m "refactor: extract rate limiter seam"
+# If already mixed in one change:
+jj split -r kmpqrstu</code></pre>
+        </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>TDD Red-Test Verification</h3>
+            <span class="pattern-tag">JjrPatterns.verifyRedTest()</span>
+          </div>
+          <p>Prove a new test actually fails without its implementation by lifting implementation files into a parallel sibling, running the test suite, and folding them back into a single green commit.</p>
+          <pre><code>jj split --parallel src/billing/ledger.ts
+npm test                      # confirm red
+jj squash --from @+ --into @  # restore single green node</code></pre>
+        </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>Local Octopus Megamerge + <code>jj absorb</code></h3>
+            <span class="pattern-tag">JjrPatterns.localMegamerge()</span>
+          </div>
+          <p>Test independent feature arms together without coupling their histories. <code>MegamergeFence</code> ensures the local merge can never leak to a remote; <code>jj absorb</code> (assisted by Jev's hunk router when ambiguous) flows fixups back to their owning arms.</p>
+          <pre><code>jj new arm_a arm_b arm_c -m "local: dev megamerge"
+jj new
+jj absorb</code></pre>
+        </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>Branch by Abstraction &amp; Post-Merge Convergence</h3>
+            <span class="pattern-tag">branchByAbstraction() · postMergeConvergence()</span>
+          </div>
+          <p>Swap subsystems across 5 independently buildable revisions (seam → dark implementation → isolated activation switch → remove legacy → optional contract), then converge landed work back onto <code>trunk()</code>.</p>
+          <pre><code>jj git fetch
+jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
+        </div>
+      </section>
+
+      <!-- 06 PORTABLE TUI / GUI -->
+      <section class="doc-section" id="ui">
+        <div class="sec-head">
+          <span class="sec-num">06</span>
+          <h2>Portable TUI &amp; GUI ViewModels</h2>
+        </div>
+        <p>
+          <code>jjr/ui/core.mjs</code> computes pure, render-agnostic ViewModels for the revision graph, guardrail banners,
+          dependency gate, Jev triage cards, and dual time-axis scrubber. Color always communicates <strong>state</strong>
+          (working copy, conflict, immutable bedrock, local megamerge, dry-run rewrite)—never arbitrary branch lanes.
+          Select any revision below to inspect its live Jev triage metrics across both renderers.
+        </p>
+
+        <figure class="instrument">
+          <div class="inst-head">
+            <span class="inst-title">Figure 5 · Shared ViewModel: TUI ↔ GUI Switcher</span>
+            <div class="btn-row">
+              <button id="modeGui" class="btn active" type="button">GUI (gui.mjs)</button>
+              <button id="modeTui" class="btn" type="button">TUI (tui.mjs)</button>
+            </div>
+          </div>
+          <div class="inst-body">
+            <div id="uiSurface"></div>
+            <div class="triage-strip" id="triageStrip"></div>
+          </div>
+          <figcaption>
+            Both views consume the exact same <code>DagGraphViewModel</code> from <code>jjr/ui/core.mjs</code>.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- 07 AGENTIC EVALS -->
+      <section class="doc-section" id="evals">
+        <div class="sec-head">
+          <span class="sec-num">07</span>
+          <h2>Agentic Evals Blueprint</h2>
+        </div>
+        <p>
+          jjr validates both deterministic invariants and calibrated Jev decision quality against real colocated Jujutsu
+          repositories (<code>evals/AGENTIC_EVALS.md</code>, <code>evals/scenarios.json</code>, runnable via <code>npm run eval</code>).
+          Scoring weights <strong>60% deterministic graph &amp; <code>jj bisect</code> invariants</strong>, <strong>25% Jev calibration
+          (Brier score &le; 0.14, ECE &le; 0.08, abstention accuracy)</strong>, and <strong>15% topological &amp; naming review</strong>.
+        </p>
+
+        <figure class="instrument">
+          <div class="inst-head">
+            <span class="inst-title">Figure 6 · 12-Scenario Eval Matrix</span>
+            <div class="btn-row" id="evalFilters">
+              <button class="btn active" type="button" data-suite="All">All (12)</button>
+              <button class="btn" type="button" data-suite="Topology">Topology</button>
+              <button class="btn" type="button" data-suite="Guardrails">Guardrails</button>
+              <button class="btn" type="button" data-suite="SDLC">SDLC</button>
+              <button class="btn" type="button" data-suite="DualTimeAxis">Time Axis</button>
+              <button class="btn" type="button" data-suite="Convergence">Convergence</button>
+            </div>
+          </div>
+          <div class="inst-body" style="padding:0">
+            <table style="margin:0">
+              <thead>
+                <tr>
+                  <th style="width:92px">ID</th>
+                  <th>Scenario</th>
+                  <th>Jev / Guardrail Mechanism</th>
+                  <th>Assertion</th>
+                </tr>
+              </thead>
+              <tbody id="evalBody"></tbody>
+            </table>
+          </div>
+          <figcaption>
+            Run the local deterministic harness against ephemeral <code>jj</code> repos with <code>npm run eval</code>.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- 08 LAUNCH POST -->
+      <section class="doc-section" id="launch">
+        <div class="sec-head">
+          <span class="sec-num">08</span>
+          <h2>Show HN Launch Post</h2>
+        </div>
+        <p>
+          Full source lives in <code>docs/HACKER_NEWS_POST.md</code>.
+        </p>
+        <div class="prose-sheet">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:0.85rem">
+            <h3 style="margin:0">Show HN: jjr – Guardrails, dry-run patterns, and System-One decisions on top of Jujutsu (jj)</h3>
+            <button id="copyHn" class="btn" type="button">Copy markdown</button>
+          </div>
+          <div id="hnPreview">
+            <p>Git trained an entire generation of engineers (and now coding agents) to treat version control as an append-only tape of chronological accidents. Even after adopting Jujutsu (<code>jj</code>)—which gives us stable Change IDs, anonymous branches, first-class algebraic conflicts, and an undoable operation log—most humans and agents still use <code>jj</code> like Git with shorter flags. They stack unrelated features linearly, accidentally push local integration merges, mix structural refactors with behavioral changes, and burn frontier-LLM calls just to classify a diff.</p>
+            <p>We built <strong>jjr</strong>, an opinionated framework library and visual workspace on top of <code>jj</code> (integrated directly with <code>jj-graph</code>'s dry-run engine) that turns Jujutsu's raw graph primitives into self-evident patterns, pre-flight guardrails, and calibrated active feedback.</p>
+            <p><strong>1. Identity–State Separation.</strong> Branded <code>ChangeId</code> (reverse-hex <code>k–z</code>) and <code>CommitId</code> (hex <code>0–9a–f</code>) types catch stale-SHA bugs immediately.</p>
+            <p><strong>2. Real Dry-Run Guardrails.</strong> Every rewrite previews via <code>jj --at-op &lt;tip&gt; --no-integrate-operation</code> and passes through six hard rules (Immutable Bedrock, Divergence Guard, Megamerge Fence, Publishing Gate, Colocated Single-Writer Guard, Workspace Discipline) before touching disk.</p>
+            <p><strong>3. TypeSafe Jev (System One) + Light LLM (System Two).</strong> Fast, non-autoregressive calibrated decisions (<code>choice</code>, <code>score</code>, <code>noul</code>) power change triage, the Two-Part Dependency Gate (pausing for human confirmation in the ambiguous probability band), blast-radius advisories, surgical <code>evolog</code> recovery routing, and hunk routing. A lightweight LLM only runs when prose is needed for commit titles and summaries.</p>
+            <p><strong>4. Portable TUI/GUI ViewModels &amp; Agentic Evals.</strong> Render-agnostic ViewModels port 1:1 to terminal ANSI or web/desktop UIs, validated by a 12-scenario eval harness over real throwaway <code>jj</code> repositories.</p>
+            <p style="margin-bottom:0"><em>Git made rebasing scary. Jujutsu made rebasing fearless. jjr makes clean graph discipline—and calibrated machine assistance—the path of least resistance.</em></p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // Theme toggle
+    const root = document.documentElement;
+    const savedTheme = localStorage.getItem('jjr-docs-theme');
+    if (savedTheme) root.dataset.theme = savedTheme;
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const dark = root.dataset.theme === 'dark' || (!root.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+      const next = dark ? 'light' : 'dark';
+      root.dataset.theme = next;
+      localStorage.setItem('jjr-docs-theme', next);
+    });
+
+    // TOC scroll spy
+    const sections = [...document.querySelectorAll('section.doc-section')];
+    const tocLinks = [...document.querySelectorAll('#tocList a')];
+    const spy = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          tocLinks.forEach((a) => a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
+        }
+      }
+    }, { rootMargin: '-18% 0px -70% 0px' });
+    sections.forEach((s) => spy.observe(s));
+
+    // Figure 2: Identity-State Validator
+    const idInput = document.getElementById('idInput');
+    const idOutput = document.getElementById('idOutput');
+    function checkId(raw) {
+      const s = raw.trim().toLowerCase();
+      if (/^[k-z]{8,32}$/.test(s)) {
+        idOutput.className = 'callout accent';
+        idOutput.innerHTML = `<div class="callout-title">Valid ChangeId · reverse-hex (k–z)</div><p>Stable logical identity (<code>${s.slice(0, 8)}</code>). Safe to pass to rebase, squash, and retry loops across commit rewrites.</p>`;
+      } else if (/^[0-9a-f]{8,40}$/.test(s)) {
+        idOutput.className = 'callout past';
+        idOutput.innerHTML = `<div class="callout-title">Valid CommitId · hex SHA (0–9a–f)</div><p>Immutable point-in-time snapshot (<code>${s.slice(0, 8)}</code>). Valid for <code>evolog</code> / <code>jj restore --from</code>; <code>asChangeId()</code> will reject it with <code>JjrTypeError</code>.</p>`;
+      } else {
+        idOutput.className = 'callout danger';
+        idOutput.innerHTML = `<div class="callout-title">JjrTypeError · Unrecognized Identifier</div><p>Expected either reverse-hex <code>ChangeId</code> (<code>k–z</code>, 8–32 chars) or hex <code>CommitId</code> (<code>0–9a–f</code>, 8–40 chars).</p>`;
+      }
+    }
+    idInput.addEventListener('input', () => checkId(idInput.value));
+    document.querySelectorAll('[data-sample]').forEach((b) => b.addEventListener('click', () => {
+      idInput.value = b.dataset.sample;
+      checkId(b.dataset.sample);
+    }));
+    checkId(idInput.value);
+
+    // Figure 3: Two-Part Dependency Plane
+    const causalRange = document.getElementById('causalRange');
+    const reviewRange = document.getElementById('reviewRange');
+    const causalVal = document.getElementById('causalVal');
+    const reviewVal = document.getElementById('reviewVal');
+    const depDot = document.getElementById('depDot');
+    const depOutput = document.getElementById('depOutput');
+
+    function updateDep() {
+      const c = Number(causalRange.value);
+      const r = Number(reviewRange.value);
+      causalVal.textContent = c.toFixed(2);
+      reviewVal.textContent = r.toFixed(2);
+      depDot.setAttribute('cx', (26 + c * 180).toFixed(1));
+      depDot.setAttribute('cy', (194 - r * 180).toFixed(1));
+
+      const low = 0.28, high = 0.72;
+      if ((c > low && c < high) || (r > low && r < high)) {
+        depOutput.className = 'callout past';
+        depOutput.innerHTML = `<div class="callout-title">Verdict: CONFIRM WITH HUMAN</div><p>Jev probability falls in the calibrated uncertainty band (<code>0.28–0.72</code>). jjr surfaces both scores instead of silently rewriting the DAG.</p>`;
+      } else if (c <= low && r >= high) {
+        depOutput.className = 'callout dry';
+        depOutput.innerHTML = `<div class="callout-title">Verdict: PARALLELIZE</div><p>No causal dependency detected. Suggested: <code>jj parallelize kmpqrstu zyxwvuts</code></p>`;
+      } else if (r <= low) {
+        depOutput.className = 'callout danger';
+        depOutput.innerHTML = `<div class="callout-title">Verdict: COLLAPSE (SQUASH)</div><p>Base change is not independently reviewable without its child. Suggested: <code>jj squash --from zyxwvuts --into kmpqrstu</code></p>`;
+      } else {
+        depOutput.className = 'callout accent';
+        depOutput.innerHTML = `<div class="callout-title">Verdict: KEEP STACKED</div><p>Child causally depends on base, and base can be reviewed and landed on its own.</p>`;
+      }
+    }
+    causalRange.addEventListener('input', updateDep);
+    reviewRange.addEventListener('input', updateDep);
+    document.querySelectorAll('[data-dep]').forEach((b) => b.addEventListener('click', () => {
+      const [c, r] = b.dataset.dep.split(',');
+      causalRange.value = c;
+      reviewRange.value = r;
+      updateDep();
+    }));
+    updateDep();
+
+    // Figure 4: Guardrail Pipeline Workbench
+    const GUARD_CASES = {
+      megamerge: {
+        cls: 'danger',
+        rule: 'MegamergeFence + JevScratchpadGate',
+        status: 'BLOCKED',
+        msg: 'Push range includes local composition merge [wxyzklmn] ("local: dev megamerge"). Jev corroborated scratchpad signal (p=0.92).',
+        fix: 'jj git push -c kmpqrstu   # push feature arms independently',
+      },
+      immutable: {
+        cls: 'danger',
+        rule: 'ImmutableBedrockGuard',
+        status: 'BLOCKED',
+        msg: 'Blocked mutation on immutable() revision [xrvryluu] (main). Shared history cannot be rewritten.',
+        fix: 'jj new trunk() -m "feat: start new mutable change"',
+      },
+      colocated: {
+        cls: 'danger',
+        rule: 'ColocatedGitGuard',
+        status: 'BLOCKED',
+        msg: 'Blocked mutating Git command "git checkout main" in colocated .jj/.git repository. Running git checkout on conflicted jj commits materializes .jjconflict-* trees.',
+        fix: 'jj new main   # keep jj as exclusive writer',
+      },
+      divergent: {
+        cls: 'danger',
+        rule: 'DivergenceGuard',
+        status: 'BLOCKED',
+        msg: 'Divergent ChangeId detected (kmpqrstu has 2 visible commits). Stacking and pushing are halted while recovery commands remain open.',
+        fix: 'jj log -r "divergent()" && jj converge',
+      },
+      unverified: {
+        cls: 'danger',
+        rule: 'PublishingGate',
+        status: 'BLOCKED',
+        msg: 'Revision [pqrstuvw] carries an unresolved algebraic conflict and failed test verification.',
+        fix: 'jj edit pqrstuvw && jj resolve && npm test',
+      },
+      workspace: {
+        cls: 'danger',
+        rule: 'WorkspaceDisciplineGuard',
+        status: 'BLOCKED',
+        msg: 'Blocked unnecessary `jj workspace add` for routine branch switching.',
+        fix: 'jj new trunk()   # reserve workspaces for parallel builds or agents',
+      },
+      clean: {
+        cls: 'accent',
+        rule: 'All 6 Hard Rules + Jev Risk Advisor',
+        status: 'ALLOWED',
+        msg: 'Revision [kmpqrstu] is mutable, non-divergent, conflict-free, green, and scored ready-to-land by Jev (score=2.84, blastRadius=single-change).',
+        fix: 'jj git push -c kmpqrstu',
+      },
+    };
+    const guardOutput = document.getElementById('guardOutput');
+    function showGuard(key) {
+      const g = GUARD_CASES[key];
+      guardOutput.className = 'callout ' + g.cls;
+      guardOutput.innerHTML = `<div class="callout-title">${g.status} · ${g.rule}</div><p>${g.msg}</p><p><strong>Command:</strong> <code>${g.fix}</code></p>`;
+      document.querySelectorAll('#guardBtns .btn').forEach((b) => b.classList.toggle('active', b.dataset.guard === key));
+    }
+    document.querySelectorAll('#guardBtns .btn').forEach((b) => b.addEventListener('click', () => showGuard(b.dataset.guard)));
+    showGuard('megamerge');
+
+    // Figure 5: Portable TUI / GUI ViewModel Switcher
+    const DEMO_NODES = [
+      {
+        changeId: 'zzzzkmpq', commitId: 'f4c910a2', glyph: '@', zone: 'mutable', depth: 2,
+        title: 'local: dev megamerge (auth + billing)', badges: [{ l: 'local megamerge', t: 'dry' }],
+        triage: { intent: 'megamerge', conf: 0.94, ent: 0.21, ready: 'scratchpad', score: 0.18, dbg: 0.09 },
+      },
+      {
+        changeId: 'kmpqrstu', commitId: '8a12be04', glyph: '○', zone: 'mutable', depth: 1,
+        title: 'feat(auth): enforce signed session cookies', badges: [{ l: 'green', t: 'accent' }, { l: 'feat/auth', t: '' }],
+        triage: { intent: 'behavioral', conf: 0.89, ent: 0.16, ready: 'ready-to-land', score: 2.86, dbg: 0.05 },
+      },
+      {
+        changeId: 'mnopqrst', commitId: '3d90cf11', glyph: '○', zone: 'mutable', depth: 1,
+        title: 'refactor(billing): extract ledger interface', badges: [{ l: 'green', t: 'accent' }],
+        triage: { intent: 'structural', conf: 0.92, ent: 0.11, ready: 'reviewable', score: 2.41, dbg: 0.04 },
+      },
+      {
+        changeId: 'pqrstuvw', commitId: '91bc4402', glyph: '×', zone: 'mutable', depth: 1,
+        title: 'feat(search): incremental trigram index', badges: [{ l: 'conflict', t: 'danger' }],
+        triage: { intent: 'behavioral', conf: 0.85, ent: 0.79, ready: 'needs-cleanup', score: 0.94, dbg: 0.62 },
+      },
+      {
+        changeId: 'xrvryluu', commitId: 'bb63ed0b', glyph: '◆', zone: 'immutable', depth: 0,
+        title: 'main · release v0.1 baseline', badges: [{ l: 'immutable()', t: '' }],
+        triage: { intent: 'behavioral', conf: 0.88, ent: 0.08, ready: 'ready-to-land', score: 2.95, dbg: 0.02 },
+      },
+    ];
+    let uiMode = 'gui';
+    let selectedIdx = 1;
+    const uiSurface = document.getElementById('uiSurface');
+    const triageStrip = document.getElementById('triageStrip');
+
+    function renderUiDemo() {
+      const sel = DEMO_NODES[selectedIdx];
+      if (uiMode === 'gui') {
+        uiSurface.innerHTML = `<div class="gui-list">${DEMO_NODES.map((n, i) => `
+          <button type="button" class="gui-row ${i === selectedIdx ? 'selected' : ''} ${n.zone === 'immutable' ? 'immutable' : ''}" data-idx="${i}" style="padding-left:${0.8 + n.depth * 1.1}rem">
+            <span class="gui-glyph" style="color:${n.glyph === '@' ? 'var(--accent)' : n.glyph === '×' ? 'var(--danger)' : 'var(--ink-2)'}">${n.glyph}</span>
+            <span class="gui-cid">${n.changeId}</span>
+            <span class="gui-sha">${n.commitId}</span>
+            <span class="gui-title">${n.title}</span>
+            ${n.badges.map((b) => `<span class="tag ${b.t}">${b.l}</span>`).join('')}
+          </button>`).join('')}</div>`;
+        uiSurface.querySelectorAll('.gui-row').forEach((el) => el.addEventListener('click', () => {
+          selectedIdx = Number(el.dataset.idx);
+          renderUiDemo();
+        }));
+      } else {
+        const lines = [
+          '┌─ JJR REVISION GRAPH ──────────────────────────────────────────────────┐',
+          ...DEMO_NODES.map((n, i) => {
+            const ptr = i === selectedIdx ? '▸ ' : '  ';
+            const pad = '  '.repeat(n.depth);
+            const tags = n.badges.map((b) => `[${b.l}]`).join(' ');
+            return `${ptr}${pad}${n.glyph} ${n.changeId} ${n.commitId} ${n.title} ${tags}`;
+          }),
+          '└────────────────────────────────────────────────────────────────────────┘',
+          'Keys: j/k move · d dependency gate · v Jev triage · n suggest name · a apply',
+        ];
+        uiSurface.innerHTML = `<div class="tui-box">${lines.join('\n')}</div>`;
+      }
+      const t = sel.triage;
+      triageStrip.innerHTML = `
+        <div class="metric"><div class="metric-k">Jev Intent</div><div class="metric-v">${t.intent}</div><div class="metric-s">conf ${t.conf.toFixed(2)}</div></div>
+        <div class="metric"><div class="metric-k">Entangled (noul)</div><div class="metric-v" style="color:${t.ent >= 0.72 ? 'var(--dry)' : 'var(--ink)'}">p = ${t.ent.toFixed(2)}</div><div class="metric-s">${t.ent >= 0.72 ? 'split suggested' : 'focused'}</div></div>
+        <div class="metric"><div class="metric-k">Readiness (score)</div><div class="metric-v">${t.ready}</div><div class="metric-s">score ${t.score.toFixed(2)}</div></div>
+        <div class="metric"><div class="metric-k">Debug / Keys</div><div class="metric-v" style="color:${t.dbg >= 0.5 ? 'var(--danger)' : 'var(--ink)'}">p = ${t.dbg.toFixed(2)}</div><div class="metric-s">${sel.changeId}</div></div>`;
+    }
+    document.getElementById('modeGui').addEventListener('click', () => {
+      uiMode = 'gui';
+      document.getElementById('modeGui').classList.add('active');
+      document.getElementById('modeTui').classList.remove('active');
+      renderUiDemo();
+    });
+    document.getElementById('modeTui').addEventListener('click', () => {
+      uiMode = 'tui';
+      document.getElementById('modeTui').classList.add('active');
+      document.getElementById('modeGui').classList.remove('active');
+      renderUiDemo();
+    });
+    renderUiDemo();
+
+    // Figure 6: 12-Scenario Eval Matrix
+    const SCENARIOS = [
+      { id: 'topo-01', suite: 'Topology', title: 'Flatten accidental linear chain of unrelated features', sig: 'Jev noul(causal) <= 0.28 -> jj parallelize', assert: 'mutableRoots.length === 2' },
+      { id: 'topo-02', suite: 'Topology', title: 'Collapse mutually entangled helper rename + sole caller', sig: 'Jev noul(reviewable) <= 0.28 -> jj squash', assert: 'mutable.length === 1' },
+      { id: 'guard-01', suite: 'Guardrails', title: 'Block pushing local octopus megamerge', sig: 'MegamergeFence + JevScratchpadGate', assert: 'pushedMegamergeCount === 0' },
+      { id: 'guard-02', suite: 'Guardrails', title: 'Block rewriting immutable() trunk commit', sig: 'ImmutableBedrockGuard pre-flight block', assert: 'immutableShasUnchanged === true' },
+      { id: 'guard-03', suite: 'Guardrails', title: 'Block native git checkout on conflicted commit', sig: 'ColocatedGitGuard single-writer fence', assert: 'conflictFilesMaterialized === false' },
+      { id: 'guard-04', suite: 'Guardrails', title: 'Halt stacking on divergent() while allowing recovery', sig: 'DivergenceGuard permits jj converge / abandon', assert: 'finalDivergentCount === 0' },
+      { id: 'sdlc-01', suite: 'SDLC', title: 'Tidy First?: slip structural refactor below behavioral', sig: 'Jev choice(intent) + jj rebase -r ... -B ...', assert: 'structuralBelowBehavioral === true' },
+      { id: 'sdlc-02', suite: 'SDLC', title: 'TDD Red-Test verification without WIP commits', sig: 'jj split --parallel -> test -> jj squash', assert: 'finalMutableCount === 1' },
+      { id: 'sdlc-03', suite: 'SDLC', title: 'Branch by Abstraction 5-step subsystem swap', sig: 'Dry-run preview of 5 buildable revisions', assert: 'allCommitsBuild === true' },
+      { id: 'sdlc-04', suite: 'SDLC', title: 'Route fixups atop megamerge via jj absorb + Jev router', sig: 'jj absorb + Jev routeHunk choice()', assert: 'megamergeUnpolluted === true' },
+      { id: 'time-01', suite: 'DualTimeAxis', title: 'Surgical evolog restore preserving sibling arm', sig: 'Jev recommendRecovery -> jj restore --from', assert: 'changeBPreserved === true' },
+      { id: 'conv-01', suite: 'Convergence', title: 'Post-merge convergence onto trunk()', sig: 'jj git fetch + jj rebase -s roots -o trunk()', assert: 'arm2RebasedOnTrunk === true' },
+    ];
+    const evalBody = document.getElementById('evalBody');
+    function renderEvals(suite) {
+      const rows = suite === 'All' ? SCENARIOS : SCENARIOS.filter((s) => s.suite === suite);
+      evalBody.innerHTML = rows.map((s) => `
+        <tr>
+          <td><code>${s.id}</code></td>
+          <td><strong>${s.title}</strong></td>
+          <td>${s.sig}</td>
+          <td><code>${s.assert}</code></td>
+        </tr>`).join('');
+      document.querySelectorAll('#evalFilters .btn').forEach((b) => b.classList.toggle('active', b.dataset.suite === suite));
+    }
+    document.querySelectorAll('#evalFilters .btn').forEach((b) => b.addEventListener('click', () => renderEvals(b.dataset.suite)));
+    renderEvals('All');
+
+    // Copy HN post
+    document.getElementById('copyHn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const text = document.getElementById('hnPreview').innerText;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = 'Copied';
+        setTimeout(() => { btn.textContent = 'Copy markdown'; }, 1600);
+      } catch {
+        btn.textContent = 'Select & copy';
+      }
+    });
+  </script>
+</body>
+</html>

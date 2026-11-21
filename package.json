@@ -1,0 +1,25 @@
+{
+  "name": "jj-graph",
+  "version": "0.1.0",
+  "description": "jjr VCS framework and DAG-centred web UI for Jujutsu with dry runs and TypeSafe Jev decisions",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./jjr/index.d.ts",
+      "import": "./jjr/index.mjs"
+    },
+    "./jjr": {
+      "types": "./jjr/index.d.ts",
+      "import": "./jjr/index.mjs"
+    },
+    "./server": "./server.mjs"
+  },
+  "bin": { "jj-graph": "server.mjs" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "eval": "node evals/harness.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}

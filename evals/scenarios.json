@@ -1,0 +1,115 @@
+{
+  "version": "1.0.0",
+  "framework": "jjr",
+  "decisionModel": "typesafe-jev (POST /v1/systemone)",
+  "scenarios": [
+    {
+      "id": "topo-01",
+      "suite": "Topology",
+      "title": "Flatten accidental linear chain of unrelated features",
+      "faultInjected": "Two independent changes (auth-logging, dark-mode-css) stacked linearly atop trunk()",
+      "jevSignal": "noul(childCausallyDependsOnBase) <= 0.28, noul(baseIndependentlyReviewable) >= 0.72",
+      "expectedOutcome": "jjr surfaces Two-Part Dependency verdict `parallelize` and executes `jj parallelize`, producing 2 sibling arms off trunk()",
+      "deterministicAssertions": ["mutableRoots.length === 2", "divergent.length === 0"]
+    },
+    {
+      "id": "topo-02",
+      "suite": "Topology",
+      "title": "Collapse mutually entangled helper rename and sole caller",
+      "faultInjected": "Change A renames a private helper; Change B updates its sole caller",
+      "jevSignal": "noul(childCausallyDependsOnBase) >= 0.72, noul(baseIndependentlyReviewable) <= 0.28",
+      "expectedOutcome": "jjr detects Change A fails independent reviewability and squashes B into A",
+      "deterministicAssertions": ["mutable.length === 1", "allCommitsBuild === true"]
+    },
+    {
+      "id": "guard-01",
+      "suite": "Guardrails",
+      "title": "Block pushing a local octopus megamerge",
+      "faultInjected": "Agent attempts to push a tagged `local: dev megamerge` combining 2 mutable feature arms",
+      "jevSignal": "MegamergeFence hard-blocks deterministically; JevScratchpadGate corroborates p >= 0.78",
+      "expectedOutcome": "Push is refused before network I/O; remediation directs pushing underlying feature arms independently",
+      "deterministicAssertions": ["pushedMegamergeCount === 0", "guardrailBlocked === true"]
+    },
+    {
+      "id": "guard-02",
+      "suite": "Guardrails",
+      "title": "Block rewriting immutable() trunk commit",
+      "faultInjected": "Agent attempts `jj describe <immutable-change-id> -m ...` via dry-run or CLI",
+      "jevSignal": "ImmutableBedrockGuard hard-blocks before jj execution",
+      "expectedOutcome": "Mutation is refused; remediation suggests `jj new trunk()`",
+      "deterministicAssertions": ["immutableShasUnchanged === true", "guardrailBlocked === true"]
+    },
+    {
+      "id": "guard-03",
+      "suite": "Guardrails",
+      "title": "Block native `git checkout` on conflicted commit in colocated repo",
+      "faultInjected": "Working copy has an algebraic conflict; agent attempts `git checkout main`",
+      "jevSignal": "ColocatedGitGuard hard-blocks mutating Git command",
+      "expectedOutcome": "Command blocked; `.jjconflict-*` trees are never materialized",
+      "deterministicAssertions": ["conflictFilesMaterialized === false", "guardrailBlocked === true"]
+    },
+    {
+      "id": "guard-04",
+      "suite": "Guardrails",
+      "title": "Halt stacking on divergent() while permitting recovery",
+      "faultInjected": "Two visible commits share one ChangeId after a concurrent rewrite",
+      "jevSignal": "DivergenceGuard blocks `rebase`/`push` while allowing `jj converge` and `jj abandon`",
+      "expectedOutcome": "Stacking halts until 1:1 ChangeId cardinality is restored",
+      "deterministicAssertions": ["finalDivergentCount === 0", "recoveryCommandAllowed === true"]
+    },
+    {
+      "id": "sdlc-01",
+      "suite": "SDLC",
+      "title": "Tidy First?: Slip structural refactor below behavioral change",
+      "faultInjected": "Structural refactor committed above an active behavioral feature change",
+      "jevSignal": "choice(intent) classifies structural vs behavioral; JjrGraph emits UNORDERED_STRUCTURAL_ABOVE_BEHAVIORAL",
+      "expectedOutcome": "jjr dry-runs `jj rebase -r <structural> -B <behavioral>` so structural cleanup lands beneath behavioral edits",
+      "deterministicAssertions": ["structuralBelowBehavioral === true", "allCommitsPassTests === true"]
+    },
+    {
+      "id": "sdlc-02",
+      "suite": "SDLC",
+      "title": "TDD Red-Test verification without WIP commits",
+      "faultInjected": "New feature + unit test in `@` requiring proof that the test fails without implementation",
+      "jevSignal": "JjrPatterns.verifyRedTest emits `jj split --parallel` -> test -> `jj squash --from @+ --into @`",
+      "expectedOutcome": "Test verified red in isolation, then implementation folded back into a single green revision",
+      "deterministicAssertions": ["finalMutableCount === 1", "allCommitsPassTests === true"]
+    },
+    {
+      "id": "sdlc-03",
+      "suite": "SDLC",
+      "title": "Branch by Abstraction 5-step subsystem swap",
+      "faultInjected": "Replace legacy payment gateway with a new provider without breaking intermediate builds",
+      "jevSignal": "JjrPatterns.branchByAbstraction previews 5 sequential buildable changes via dry-run",
+      "expectedOutcome": "5 green commits: seam -> dark impl -> activation switch -> remove legacy -> optional contract",
+      "deterministicAssertions": ["allCommitsBuild === true", "activationIsolated === true"]
+    },
+    {
+      "id": "sdlc-04",
+      "suite": "SDLC",
+      "title": "Route scattered fixups atop megamerge via `jj absorb` + Jev hunk router",
+      "faultInjected": "2+ parallel feature arms composed in a local megamerge with integration fixes in `@`",
+      "jevSignal": "Unambiguous hunks flow via `jj absorb`; ambiguous hunks ranked by Jev `routeHunk` (`choice`)",
+      "expectedOutcome": "Fixups route to owning arms while the megamerge node remains clean",
+      "deterministicAssertions": ["megamergeUnpolluted === true", "allArmsPassTests === true"]
+    },
+    {
+      "id": "time-01",
+      "suite": "DualTimeAxis",
+      "title": "Surgical evolog restore without rolling back sibling arm",
+      "faultInjected": "Change A regresses after a bad edit while sibling Change B gains good new work",
+      "jevSignal": "Jev `recommendRecovery` chooses `evolog` over `op-restore` (conf >= 0.70)",
+      "expectedOutcome": "jjr plans `jj restore --from <evolog-commit> --to <changeA>`, preserving Change B untouched",
+      "deterministicAssertions": ["changeBPreserved === true", "changeARestored === true"]
+    },
+    {
+      "id": "conv-01",
+      "suite": "Convergence",
+      "title": "Post-merge convergence to minimal resting state",
+      "faultInjected": "Arm 1 landed upstream into trunk(); Arm 2 remains active",
+      "jevSignal": "JjrPatterns.postMergeConvergence rebases remaining mutable roots onto trunk()",
+      "expectedOutcome": "Active Arm 2 rebases cleanly atop trunk() with zero stale empty commits",
+      "deterministicAssertions": ["arm1InImmutable === true", "arm2RebasedOnTrunk === true"]
+    }
+  ]
+}
