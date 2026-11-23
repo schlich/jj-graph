@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = ["crates/jjr", "crates/jj-graph"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
+repository = "https://github.com/schlich/jj-graph"
+
+[workspace.dependencies]
+jjr = { path = "crates/jjr" }
+# jj-graph reads repositories in-process with jj's own libraries, pinned to the
+# jj release it drives as a subprocess for writes.
+jj-lib = { version = "=0.47.1", default-features = false, features = ["git"] }
+jj-frontend = { version = "=0.47.1", features = ["git"] }
+jj-cli = { version = "=0.47.1", default-features = false, features = ["git"] }
+pollster = "1.0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tiny_http = "0.12"
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+rand = "0.9"
+jiff = "0.2"
+regex = "1"
+indexmap = { version = "2", features = ["serde"] }
+futures = "0.3.32"
+bstr = "1.12.1"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Dependencies build unoptimized and without debug info: optimizing jj-lib,
+# jj-cli and gitoxide takes several GiB per rustc process, enough to run a
+# 16 GiB machine out of memory with a few parallel jobs.
+opt-level = 0
+debug = false

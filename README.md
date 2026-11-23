@@ -38,11 +38,16 @@ operations as a dry run, then commit to the result with one button.
 
 ## Run it
 
-Needs `jj` 0.47 or newer and Node 20 or newer. There are no dependencies.
+jj-graph is a Rust program built on jj's own libraries. Build it with Rust
+1.97 or newer; at run time it needs `jj` 0.47.1 on `PATH`, the release its
+libraries come from.
 
 ```sh
-node server.mjs [REPO] [--port 7777] [--host 127.0.0.1] [--verify-command CMD]
+cargo install --path crates/jj-graph
+jj-graph [REPO] [--port 7777] [--host 127.0.0.1] [--verify-command CMD]
 ```
+
+The web UI and these docs are compiled into the binary.
 
 To use it from a phone, bind an address the phone can reach, such as
 `--host 0.0.0.0`. The printed URL then carries a token, and the API refuses
@@ -84,7 +89,7 @@ Nothing you do in the graph touches the repository until you press **Apply**.
 Each step runs as `jj --at-op <previous step> --no-integrate-operation <command>`.
 jj performs the command for real, conflicts included, and writes an operation
 that it leaves out of the operation log. Before it runs, the jjr guardrails
-check the step, with the revisions it rewrites resolved by jj at that point
+check the step, with the revisions it rewrites resolved by jj-lib at that point
 of the plan; a blocked step explains why and what to do instead, and a
 warning (an unverified bookmark, say) appears as a notice. The graph then shows the repository
 as of that operation. The working copy, the Git refs of a colocated
@@ -102,6 +107,15 @@ edited a file, the plan is replayed on top of the new state, so applying it
 never leaves divergent changes. If a step no longer applies, the plan is
 marked out of date and Apply is disabled until you undo that step or discard.
 
+jj-graph reads the repository in-process with jj-lib, at any operation,
+including the ones a plan leaves out of the operation log. It loads your
+configuration the way `jj` does (user, repository and workspace layers,
+conditional scopes, revset aliases), so `trunk()` and `immutable_heads()` mean
+exactly what they mean to `jj`. Everything it writes (snapshots, dry-run
+steps, `op integrate`, `op restore`, `jj fix`, `jj run`) goes through the `jj`
+command itself, so command semantics, working-copy updates and Git
+import/export are exactly jj's.
+
 ## Limits
 
 - Commands with effects outside the repository (`git push`, `git fetch`) and
@@ -118,69 +132,74 @@ marked out of date and Apply is disabled until you undo that step or discard.
 
 ## jjr framework
 
-`jj-graph` ships with **jjr** (`jjr/index.mjs` + TypeScript declarations in
-`jjr/index.d.ts`), a zero-dependency framework layer integrated directly with
-the dry-run engine:
+`jj-graph` ships with **jjr** (the `jjr` crate in `crates/jjr`), a framework
+layer integrated directly with the dry-run engine. It reasons over the graph
+jj-graph reads, so it does not depend on jj-lib itself:
 
-- **Identity–state types (`jjr/types.mjs`)**: runtime and TypeScript branded
-  separation between `ChangeId` (reverse-hex `k–z`), `CommitId` (hex `0–9a–f`),
-  `OpId`, and `BookmarkName`.
-- **Command model (`jjr/commands.mjs`)**: which revisions each jj command
+- **Identity–state types (`jjr::types`)**: validated separation between
+  `ChangeId` (reverse-hex `k–z`), `CommitId` (hex `0–9a–f`), `OpId`, and
+  `BookmarkName`.
+- **Command model (`jjr::commands`)**: which revisions each jj command
   rewrites, only reads, or points a bookmark at (`jj new X` reads `X`,
   `jj new -B X` rewrites it, `jj squash` rewrites `@` and `@-`), so guardrails
   check what a command really does.
-- **Guardrail pipeline (`jjr/guardrails.mjs`)**: eight rules that gate every
+- **Guardrail pipeline (`jjr::guardrails`)**: eight rules that gate every
   dry-run step, bookmark, push, Git command, and workspace creation:
   Pre-flight (`trunk()` and `immutable_heads()` must resolve), Immutable
   Bedrock (never `immutable()` or `::trunk()`, never `--ignore-immutable`),
   Divergence Guard, Megamerge Fence, Publishing Gate (conflict-free,
   non-empty, formatted, green; bookmarks included), Colocated Single-Writer
   (git is read-only), Workspace Discipline, and Change-ID Addressing.
-- **Graph model and diagnostics (`jjr/graph.mjs`)**: the canonical DAG shape
+- **Graph model and diagnostics (`jjr::graph`)**: the canonical DAG shape
   of your work (single change, shallow stack, parallel arms, megamerge, resting)
   with its publishing rule, and diagnostics with dry-runnable fixes for
   structural-above-behavioral order, activation switches that are not on top or
   not tiny, edited megamerges, clean conflict resolution, behavior without
   tests, arms based on an old trunk, deep stacks, divergence, and Git features
   jj does not support (submodules, LFS, `.gitattributes`, hooks).
-- **Verification and publishing (`server.mjs`, `jjr/runner.mjs`)**: **Verify
+- **Verification and publishing (`jj-graph`, `jjr::runner`)**: **Verify
   stack** runs `jj fix` and the verify command (`jj run --ignore-changes`) in
   every mutable revision as operations it never keeps; the Publishing Gate
   reads those results, and **Plan publishing** marks which bottom layers of a
   stack can be published now for the configured forge (`jjr.forge`: Gerrit,
   GitHub bookmarks, jj-stack, jj-spr).
-- **TypeSafe Jev System-One decisions (`jjr/jev.mjs`)**: wire-compatible
+- **TypeSafe Jev System-One decisions (`jjr::jev`)**: wire-compatible
   `POST /v1/systemone` client (`choice`, `score`, `noul`) with calibrated
   offline fallback. Powers single-pass change triage, the Two-Part Dependency
   Gate (pausing for human confirmation in the ambiguous probability band),
   scratchpad/blast-radius risk advisories, dual time-axis recovery routing, and
   ambiguous `jj absorb` hunk routing. Set `TYPESAFE_API_KEY` to enable live
   Jev inference.
-- **Light LLM narrator (`jjr/narrator.mjs`)**: System-Two prose layer strictly
+- **Light LLM narrator (`jjr::narrator`)**: System-Two prose layer strictly
   for naming changes, bookmark slugs, and two-sentence diagnostic summaries
   (set `JJR_LLM_API_KEY` or `OPENAI_API_KEY`, with deterministic fallback).
-- **SDLC patterns & portable UI (`jjr/patterns.mjs`, `jjr/ui/`)**: dry-run
+- **SDLC patterns & portable UI (`jjr::patterns`, `jjr::ui`)**: dry-run
   recipes (squash and edit workflows, *Tidy First?*, characterization tests,
   TDD red-test verification, Branch by Abstraction, expand & contract,
   isolated activation, local megamerges and `jj absorb`, shared-primitive
   extraction, clean conflict resolution, stack validation, agent workspaces,
   post-merge convergence), the six-phase SDLC lifecycle, and render-agnostic
-  ViewModels that port 1:1 to TUI (`jjr/ui/tui.mjs`) or GUI
-  (`jjr/ui/gui.mjs`).
+  ViewModels that port 1:1 to TUI (`jjr::ui::tui`) or GUI
+  (`jjr::ui::gui`).
 
-Open `/docs` while `server.mjs` is running (or open `docs/index.html` directly)
+Open `/docs` while `jj-graph` is running (or open `docs/index.html` directly)
 for the interactive reference documentation.
 
 ## Develop
 
 ```sh
-npm test        # 36 unit + integration tests against throwaway jj repos
-npm run eval    # 15-scenario deterministic jjr eval harness (evals/harness.mjs)
+cargo test --workspace                # jjr, the engine, and the 15 eval scenarios
+cargo test -p jj-graph --test evals   # just the eval scenarios (evals/scenarios.json)
+node --test                           # the web UI's layout tests
 ```
 
-The tests and eval harness build throwaway repositories with `jj` (and `git`
-for the convergence scenario's remote) and cover the layout, dry-run plan,
-replay, apply, undo, history, evolution, the command model, pre-flight,
-jjr guardrails, verification, layered publishing, TypeSafe Jev workflows, and
+The engine tests and eval scenarios build throwaway repositories with `jj`
+(and `git` for the convergence scenario's remote) and cover the dry-run plan,
+replay, apply, undo, history, evolution, the command model, pre-flight, jjr
+guardrails, verification, layered publishing, TypeSafe Jev workflows, and
 portable UI ViewModels.
+
+Dependencies build unoptimized and without debug info: optimized, a single
+`rustc` process for jj-lib or jj-cli took over 4 GiB. On a machine with little
+memory, cap parallel jobs too: `CARGO_BUILD_JOBS=2 cargo test --workspace`.
 

@@ -10,7 +10,7 @@ jjr is validated with a **4-Tier Agentic Eval Harness** executed inside ephemera
 
 ## 2. Harness Architecture
 
-1. **Seeded Fixture Generator (`evals/harness.mjs`)**
+1. **Seeded Fixture Generator (`crates/jj-graph/tests/evals.rs`)**
    Spins up throwaway colocated repositories with deterministic `trunk()`, mutable feature stacks, simulated remotes, and controlled fault injections (divergent commits, conflicted trees, unmarked megamerges, structural-above-behavioral stacks, and entangled diffs).
 2. **Paired Control vs. Treatment Runner**
    Executes each scenario under two conditions with identical turn budgets (15 turns):
@@ -64,7 +64,7 @@ jjr is validated with a **4-Tier Agentic Eval Harness** executed inside ephemera
 Run the local deterministic fixture suite against real `jj` repositories:
 
 ```sh
-npm run eval
+cargo test -p jj-graph --test evals
 ```
 
-Each scenario builds an isolated temporary colocated repository with `jj git init --colocate` (plus a bare `origin` for `conv-01`, which needs `git`), injects the fault condition, exercises `JjrRunner`, `JjrGuardrailPipeline`, and `JjrJevAssistant` against `server.mjs`'s dry-run and verification engine, and prints a pass/fail scorecard with timings.
+Each scenario is one test. It builds an isolated temporary colocated repository with `jj git init --colocate` (plus a bare `origin` for `conv-01`, which needs `git`), injects the fault condition, and exercises `JjrRunner`, `JjrGuardrailPipeline`, and `JjrJevAssistant` against jj-graph's dry-run and verification engine; cargo reports each scenario's pass or failure.

@@ -551,9 +551,9 @@
         <li><a href="#launch"><span class="num">08</span> Launch Post</a></li>
       </ol>
       <div class="toc-meta">
-        Zero runtime dependencies.<br>
-        Node 20+ ESM &amp; TypeScript declarations.<br>
-        Backed by <code>jj 0.47+</code> dry-run ops.
+        Rust crates on <code>jj-lib 0.47</code>.<br>
+        Reads in-process; writes through <code>jj</code>.<br>
+        Backed by <code>jj 0.47</code> dry-run ops.
       </div>
     </aside>
 
@@ -591,7 +591,7 @@
         <figure class="instrument">
           <div class="inst-head">
             <span class="inst-title">Figure 1 · jjr Execution &amp; Decision Architecture</span>
-            <span class="mono" style="color:var(--muted)">jjr/index.mjs ↔ server.mjs</span>
+            <span class="mono" style="color:var(--muted)">crates/jjr ↔ crates/jj-graph</span>
           </div>
           <div class="inst-body">
             <svg viewBox="0 0 680 250" width="100%" role="img" aria-label="jjr architecture diagram showing guardrails, Jev System One, light LLM narrator, and jj dry-run engine">
@@ -612,7 +612,7 @@
               <rect x="206" y="14" width="212" height="66" rx="4" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4"/>
               <text x="312" y="37" text-anchor="middle" font-family="var(--mono)" font-size="12" font-weight="600" fill="var(--ink)">JjrGuardrailPipeline</text>
               <text x="312" y="54" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--muted)">8 hard rules + JjrGraph invariants</text>
-              <text x="312" y="69" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--accent)">jjr/guardrails.mjs · jjr/graph.mjs</text>
+              <text x="312" y="69" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--accent)">guardrails.rs · graph.rs</text>
 
               <rect x="462" y="14" width="206" height="66" rx="4" fill="var(--dry-soft)" stroke="var(--dry)"/>
               <text x="565" y="37" text-anchor="middle" font-family="var(--mono)" font-size="12" font-weight="600" fill="var(--ink)">jj-graph Dry-Run Engine</text>
@@ -638,9 +638,9 @@
               <!-- Portable UI -->
               <rect x="12" y="124" width="150" height="106" rx="4" fill="var(--paper)" stroke="var(--rule-strong)"/>
               <text x="87" y="148" text-anchor="middle" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--ink)">Portable UI Kit</text>
-              <text x="87" y="168" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">jjr/ui/core.mjs</text>
+              <text x="87" y="168" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">jjr::ui::core</text>
               <text x="87" y="189" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--ink-2)">Pure ViewModels</text>
-              <text x="87" y="206" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--ink)">tui.mjs  |  gui.mjs</text>
+              <text x="87" y="206" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--ink)">tui.rs  |  gui.rs</text>
 
               <!-- Connectors -->
               <line x1="162" y1="47" x2="202" y2="47" stroke="var(--rule-strong)" stroke-width="1.5" marker-end="url(#arr)"/>
@@ -667,49 +667,54 @@
           </thead>
           <tbody>
             <tr>
-              <td><code>jjr/types.mjs</code></td>
-              <td>Identity–state branded validation, canonical shapes, verification state</td>
-              <td><code>asChangeId</code>, <code>asCommitId</code>, <code>asOpId</code>, <code>JjrTypeError</code>, <code>CANONICAL_SHAPES</code>, <code>verificationState</code></td>
+              <td><code>jjr::types</code></td>
+              <td>Identity–state validation, canonical shapes, verification state</td>
+              <td><code>as_change_id</code>, <code>as_commit_id</code>, <code>as_op_id</code>, <code>JjrTypeError</code>, <code>canonical_shape</code>, <code>verification_state</code></td>
             </tr>
             <tr>
-              <td><code>jjr/commands.mjs</code></td>
+              <td><code>jjr::commands</code></td>
               <td>jj CLI model: which revisions a command rewrites, reads, or bookmarks</td>
-              <td><code>describeMutation</code>, <code>parseJjArgs</code>, <code>JJ_COMMAND_SPECS</code></td>
+              <td><code>describe_mutation</code>, <code>parse_jj_args</code>, <code>JJ_COMMAND_SPECS</code></td>
             </tr>
             <tr>
-              <td><code>jjr/graph.mjs</code></td>
+              <td><code>jjr::graph</code></td>
               <td>In-memory DAG, zones, pre-flight facts, shapes &amp; diagnostics</td>
-              <td><code>JjrGraph</code>, <code>fromJjGraphNodes</code>, <code>resolve</code>, <code>classifyShape</code>, <code>evaluateDependency</code></td>
+              <td><code>JjrGraph</code>, <code>from_nodes</code>, <code>resolve</code>, <code>classify_shape</code>, <code>evaluate_dependency</code></td>
             </tr>
             <tr>
-              <td><code>jjr/jev.mjs</code></td>
+              <td><code>jjr::jev</code></td>
               <td>TypeSafe Jev System-One client &amp; workflows</td>
               <td><code>JevClient</code>, <code>choice</code>, <code>score</code>, <code>noul</code>, <code>JjrJevAssistant</code></td>
             </tr>
             <tr>
-              <td><code>jjr/guardrails.mjs</code></td>
+              <td><code>jjr::guardrails</code></td>
               <td>Composable pre-flight safety pipeline</td>
-              <td><code>JjrGuardrailPipeline</code>, 8 default rules, <code>evaluateWithJev</code>, <code>isReadOnlyGitCommand</code></td>
+              <td><code>JjrGuardrailPipeline</code>, 8 default rules, <code>evaluate_with_jev</code>, <code>is_read_only_git_command</code></td>
             </tr>
             <tr>
-              <td><code>jjr/patterns.mjs</code></td>
+              <td><code>jjr::patterns</code></td>
               <td>Self-evident SDLC &amp; recovery recipes, forge adapters, lifecycle</td>
-              <td><code>JjrPatterns</code>, <code>FORGE_ADAPTERS</code>, <code>SDLC_LIFECYCLE</code>, <code>planTimeTravelRecovery</code>, <code>suggestPatternsForGraph</code></td>
+              <td><code>JjrPatterns</code>, <code>forge_adapter</code>, <code>sdlc_lifecycle</code>, <code>plan_time_travel_recovery</code>, <code>suggest_patterns_for_graph</code></td>
             </tr>
             <tr>
-              <td><code>jjr/runner.mjs</code></td>
+              <td><code>jjr::runner</code></td>
               <td>Guarded dry runs, stack verification, layered publishing</td>
-              <td><code>JjrRunner</code>, <code>dryRun</code>, <code>verifyStack</code>, <code>planLayeredPublish</code></td>
+              <td><code>JjrRunner</code>, <code>dry_run</code>, <code>verify_stack</code>, <code>plan_layered_publish</code></td>
             </tr>
             <tr>
-              <td><code>jjr/narrator.mjs</code></td>
+              <td><code>jjr::narrator</code></td>
               <td>Light LLM naming &amp; diagnostic prose</td>
               <td><code>JjrNarrator</code>, <code>OpenAiCompatibleTransport</code></td>
             </tr>
             <tr>
-              <td><code>jjr/ui/*.mjs</code></td>
+              <td><code>jjr::ui</code></td>
               <td>Render-agnostic TUI &amp; GUI ViewModels</td>
-              <td><code>buildDagGraphViewModel</code>, <code>renderDagTui</code>, <code>toGuiDagRows</code></td>
+              <td><code>build_dag_graph_view_model</code>, <code>render_dag_tui</code>, <code>to_gui_dag_rows</code></td>
+            </tr>
+            <tr>
+              <td><code>jj-graph</code></td>
+              <td>Repository reads on jj-lib, dry-run engine, HTTP server</td>
+              <td><code>RepoContext</code>, <code>App</code>, <code>server::serve</code></td>
             </tr>
           </tbody>
         </table>
@@ -725,7 +730,7 @@
           In Jujutsu, a <strong>ChangeId</strong> (reverse-hex letters <code>k–z</code>) identifies a logical unit of work
           across every rebase, squash, and amendment. A <strong>CommitId</strong> (hex <code>0–9a–f</code>) identifies one
           immutable point-in-time snapshot underneath it. Mixing them up causes fragile scripts and agent retries that target
-          stale commits. jjr brands both at the TypeScript type boundary (<code>jjr/index.d.ts</code>) and validates them at runtime.
+          stale commits. jjr validates both wherever an id enters (<code>jjr::types</code>), and the jj-graph engine reads them straight from jj-lib.
         </p>
 
         <figure class="instrument">
@@ -742,7 +747,7 @@
             <div id="idOutput" class="callout accent"></div>
           </div>
           <figcaption>
-            Runtime check implemented by <code>asChangeId()</code> and <code>asCommitId()</code> in <code>jjr/types.mjs</code>.
+            The same check as <code>as_change_id()</code> and <code>as_commit_id()</code> in <code>jjr::types</code>.
           </figcaption>
         </figure>
 
@@ -760,7 +765,7 @@
         </p>
         <p>
           Every mutable change should be one of the reference's <strong>canonical shapes</strong>, and
-          <code>JjrGraph.classifyShape()</code> reports which one the mutable zone is in, together with its publishing rule:
+          <code>JjrGraph::classify_shape()</code> reports which one the mutable zone is in, together with its publishing rule:
         </p>
         <table>
           <thead><tr><th>Shape</th><th>Optimal DAG</th><th>Publishing boundary</th></tr></thead>
@@ -789,29 +794,32 @@
         </p>
 
         <ul class="plain">
-          <li><strong>Single-Pass Change Triage (<code>triageChange</code>):</strong> Batches 5 questions in one call: <code>intent</code> (<code>choice</code>), structural/behavioral <code>entangled</code> (<code>noul</code>), <code>publishReadiness</code> (<code>score</code>), <code>hasDebugOrSecrets</code> (<code>noul</code>), and <code>apiWithoutConsumer</code> (<code>noul</code>: a new API with no caller or test, against the rule to pair every new API with a consumer).</li>
-          <li><strong>Two-Part Dependency Gate (<code>assessDependency</code>):</strong> Runs two parallel <code>noul</code> propositions—<em>Causal Necessity</em> and <em>Independent Reviewability</em>. When either probability lands inside the ambiguous band (<code>0.28–0.72</code>), jjr pauses to confirm with the developer instead of guessing.</li>
-          <li><strong>Behind-the-Scenes Guardrail Augmentation (<code>evaluateActionRisk</code>):</strong> Catches unmarked local scratchpads before a push and scores blast radius to recommend dry-run previews automatically.</li>
-          <li><strong>Recovery &amp; Absorb Routing (<code>recommendRecovery</code>, <code>routeHunk</code>):</strong> Chooses surgical <code>evolog</code> restore vs. repo-wide <code>op restore</code>, and ranks candidate feature arms when a working-copy fixup atop a megamerge has ambiguous ownership.</li>
+          <li><strong>Single-Pass Change Triage (<code>triage_change</code>):</strong> Batches 5 questions in one call: <code>intent</code> (<code>choice</code>), structural/behavioral <code>entangled</code> (<code>noul</code>), <code>publishReadiness</code> (<code>score</code>), <code>hasDebugOrSecrets</code> (<code>noul</code>), and <code>apiWithoutConsumer</code> (<code>noul</code>: a new API with no caller or test, against the rule to pair every new API with a consumer).</li>
+          <li><strong>Two-Part Dependency Gate (<code>assess_dependency</code>):</strong> Runs two parallel <code>noul</code> propositions—<em>Causal Necessity</em> and <em>Independent Reviewability</em>. When either probability lands inside the ambiguous band (<code>0.28–0.72</code>), jjr pauses to confirm with the developer instead of guessing.</li>
+          <li><strong>Behind-the-Scenes Guardrail Augmentation (<code>evaluate_action_risk</code>):</strong> Catches unmarked local scratchpads before a push and scores blast radius to recommend dry-run previews automatically.</li>
+          <li><strong>Recovery &amp; Absorb Routing (<code>recommend_recovery</code>, <code>route_hunk</code>):</strong> Chooses surgical <code>evolog</code> restore vs. repo-wide <code>op restore</code>, and ranks candidate feature arms when a working-copy fixup atop a megamerge has ambiguous ownership.</li>
         </ul>
 
-        <pre><code>import { JevClient, JjrJevAssistant, choice, noul, score } from './jjr/index.mjs';
+        <pre><code>use jjr::jev::{ChangeTriageInput, JevClient, JevClientOptions, JjrJevAssistant};
 
-const jev = new JjrJevAssistant(new JevClient({
-  // Reads process.env.TYPESAFE_API_KEY automatically; defaults to https://api.typesafe.ai
-  // Also accepts an existing @typesafe-ai/sdk client via { sdkClient }
-  defaultModel: 'jev-latest',
-}));
+// Reads TYPESAFE_API_KEY (and TYPESAFE_BASE_URL) from the environment;
+// defaults to https://api.typesafe.ai. Without a key, every answer comes
+// from the calibrated offline heuristics.
+let jev = JjrJevAssistant::new(Some(JevClient::new(JevClientOptions {
+    default_model: Some("jev-latest".into()),
+    ..Default::default()
+})));
 
-const { answers } = await jev.triageChange({
-  changeId: 'tzpzvowk',
-  description: 'refactor: extract session validator',
-  touchedPaths: ['src/auth/session.ts'],
-  diffExcerpt: '...',
+let triage = jev.triage_change(&amp;ChangeTriageInput {
+    change_id: "tzpzvowk".into(),
+    description: "refactor: extract session validator".into(),
+    touched_paths: vec!["src/auth/session.ts".into()],
+    diff_excerpt: "...".into(),
+    ..Default::default()
 });
-// answers.intent.choice          -> 'structural' (confidence: 0.91)
-// answers.entangled.noul         -> 0.14
-// answers.publishReadiness.legend -> 'ready-to-land' (score: 2.86)</code></pre>
+// triage.answers.intent.choice             -> "structural" (confidence: 0.91)
+// triage.answers.entangled.noul            -> 0.14
+// triage.answers.publish_readiness.legend  -> "ready-to-land" (score: 2.86)</code></pre>
 
         <figure class="instrument">
           <div class="inst-head">
@@ -888,7 +896,7 @@ const { answers } = await jev.triageChange({
         <p>
           Every mutation, bookmark, push, Git interop command, and workspace action passes through <code>JjrGuardrailPipeline</code>
           before touching the repository—including every step of <code>jj-graph</code>'s <code>POST /api/dry</code> handler, where
-          the revisions a command rewrites are resolved by jj itself. <code>jjr/commands.mjs</code> knows what each command does to the
+          the revisions a command rewrites are resolved with jj-lib. <code>jjr::commands</code> knows what each command does to the
           revisions it names: <code>jj new X</code> only reads <code>X</code>, <code>jj new -B X</code> rewrites it, <code>jj new -A X</code>
           rewrites its children, and <code>jj squash --into X</code> rewrites <code>X</code>.
           Blockers always include a concrete remediation command rather than a dead-end error.
@@ -907,7 +915,7 @@ const { answers } = await jev.triageChange({
         <figure class="instrument">
           <div class="inst-head">
             <span class="inst-title">Figure 4 · Guardrail Pipeline Workbench</span>
-            <span class="mono" style="color:var(--muted)">jjr/guardrails.mjs</span>
+            <span class="mono" style="color:var(--muted)">jjr::guardrails</span>
           </div>
           <div class="inst-body">
             <div class="btn-row" id="guardBtns">
@@ -926,7 +934,7 @@ const { answers } = await jev.triageChange({
             <div id="guardOutput" class="callout danger"></div>
           </div>
           <figcaption>
-            All eight deterministic rules compose linearly; <code>evaluateWithJev()</code> adds calibrated scratchpad and blast-radius advisories when hard rules pass.
+            All eight deterministic rules compose linearly; <code>evaluate_with_jev()</code> adds calibrated scratchpad and blast-radius advisories when hard rules pass.
           </figcaption>
         </figure>
       </section>
@@ -938,14 +946,14 @@ const { answers } = await jev.triageChange({
           <h2>Self-Evident SDLC Patterns</h2>
         </div>
         <p>
-          Rather than memorizing flags, jjr exposes opinionated pattern builders in <code>jjr/patterns.mjs</code>.
+          Rather than memorizing flags, jjr exposes opinionated pattern builders in <code>jjr::patterns</code>.
           Each recipe emits both human-readable commands and structured argument arrays that preview safely inside <code>jj-graph</code>'s dry-run engine.
         </p>
 
         <div class="pattern-item">
           <div class="pattern-head">
             <h3>Tidy First? (Structural Below Behavioral)</h3>
-            <span class="pattern-tag">JjrPatterns.tidyFirstBelow()</span>
+            <span class="pattern-tag">JjrPatterns::tidy_first_below()</span>
           </div>
           <p>Slip zero-behavior-change cleanup underneath active feature work so reviewers can approve mechanical refactors separately and revert behavioral changes cleanly.</p>
           <pre><code>jj new -B kmpqrstu -m "refactor: extract rate limiter seam"
@@ -956,7 +964,7 @@ jj split -r kmpqrstu</code></pre>
         <div class="pattern-item">
           <div class="pattern-head">
             <h3>Characterization Tests Before Refactors</h3>
-            <span class="pattern-tag">JjrPatterns.characterizationTestsBelow()</span>
+            <span class="pattern-tag">JjrPatterns::characterization_tests_below()</span>
           </div>
           <p>Before restructuring untested code, slip a test-only change below the refactor so reviewers and CI see existing behavior locked down before anything moves.</p>
           <pre><code>jj new --no-edit -B kmpqrstu -m "test: characterize rate limiter"
@@ -966,7 +974,7 @@ jj run --ignore-changes -r 'kmpqrstu- | kmpqrstu' -- npm test</code></pre>
         <div class="pattern-item">
           <div class="pattern-head">
             <h3>TDD Red-Test Verification</h3>
-            <span class="pattern-tag">JjrPatterns.verifyRedTest()</span>
+            <span class="pattern-tag">JjrPatterns::verify_red_test()</span>
           </div>
           <p>Prove a new test actually fails without its implementation. <code>jj split --parallel</code> keeps the change id on the selected implementation files and moves <code>@</code> to a tests-only sibling; once the run is red, the tests fold back into the implementation, so the change keeps its id and no red commit stays in the DAG.</p>
           <pre><code>jj split --parallel -m "feat: ledger totals" src/billing/ledger.ts
@@ -1003,7 +1011,7 @@ jj squash --from @ --into 'arm_a- &amp; arm_b-' src/parse.ts</code></pre>
         <div class="pattern-item">
           <div class="pattern-head">
             <h3>Clean Conflict Resolution</h3>
-            <span class="pattern-tag">JjrPatterns.resolveConflictCleanly()</span>
+            <span class="pattern-tag">JjrPatterns::resolve_conflict_cleanly()</span>
           </div>
           <p>Resolve in a child commit so the resolution is reviewable on its own, then fold it down; it propagates to every descendant. <code>CONFLICTED_CHANGE</code> suggests the fold as soon as a non-conflicted child exists.</p>
           <pre><code>jj new pqrstuvw
@@ -1015,7 +1023,7 @@ jj squash</code></pre>
         <div class="pattern-item">
           <div class="pattern-head">
             <h3>Stack Validation &amp; Layered Publishing</h3>
-            <span class="pattern-tag">stackValidation() · JjrRunner.planLayeredPublish()</span>
+            <span class="pattern-tag">stack_validation() · JjrRunner::plan_layered_publish()</span>
           </div>
           <p>Before publishing, format every mutable revision and build and test each one on its own. <code>jj-graph</code>'s <strong>Verify stack</strong> does both as operations it never keeps (<code>POST /api/jjr/verify</code>; set the command with <code>--verify-command</code> or <code>jj config set --repo jjr.verify-command 'npm test'</code>). The Publishing Gate then reads those results: <strong>Plan publishing</strong> marks the green bottom layers publishable and keeps the rest local.</p>
           <pre><code>jj fix -s 'roots((trunk()..@) &amp; mutable())'
@@ -1084,7 +1092,7 @@ jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
           <h2>Portable TUI &amp; GUI ViewModels</h2>
         </div>
         <p>
-          <code>jjr/ui/core.mjs</code> computes pure, render-agnostic ViewModels for the revision graph, guardrail banners,
+          <code>jjr::ui::core</code> computes pure, render-agnostic ViewModels for the revision graph, guardrail banners,
           dependency gate, Jev triage cards, and dual time-axis scrubber. Color always communicates <strong>state</strong>
           (working copy, conflict, immutable bedrock, local megamerge, dry-run rewrite)—never arbitrary branch lanes.
           Select any revision below to inspect its live Jev triage metrics across both renderers.
@@ -1094,8 +1102,8 @@ jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
           <div class="inst-head">
             <span class="inst-title">Figure 5 · Shared ViewModel: TUI ↔ GUI Switcher</span>
             <div class="btn-row">
-              <button id="modeGui" class="btn active" type="button">GUI (gui.mjs)</button>
-              <button id="modeTui" class="btn" type="button">TUI (tui.mjs)</button>
+              <button id="modeGui" class="btn active" type="button">GUI (gui.rs)</button>
+              <button id="modeTui" class="btn" type="button">TUI (tui.rs)</button>
             </div>
           </div>
           <div class="inst-body">
@@ -1103,7 +1111,7 @@ jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
             <div class="triage-strip" id="triageStrip"></div>
           </div>
           <figcaption>
-            Both views consume the exact same <code>DagGraphViewModel</code> from <code>jjr/ui/core.mjs</code>.
+            Both views consume the exact same <code>DagGraphViewModel</code> from <code>jjr::ui::core</code>.
           </figcaption>
         </figure>
       </section>
@@ -1116,7 +1124,7 @@ jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
         </div>
         <p>
           jjr validates both deterministic invariants and calibrated Jev decision quality against real colocated Jujutsu
-          repositories (<code>evals/AGENTIC_EVALS.md</code>, <code>evals/scenarios.json</code>, runnable via <code>npm run eval</code>).
+          repositories (<code>evals/AGENTIC_EVALS.md</code>, <code>evals/scenarios.json</code>, runnable via <code>cargo test -p jj-graph --test evals</code>).
           Scoring weights <strong>60% deterministic graph &amp; <code>jj bisect</code> invariants</strong>, <strong>25% Jev calibration
           (Brier score &le; 0.14, ECE &le; 0.08, abstention accuracy)</strong>, and <strong>15% topological &amp; naming review</strong>.
         </p>
@@ -1148,7 +1156,7 @@ jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
             </table>
           </div>
           <figcaption>
-            Run the local deterministic harness against ephemeral <code>jj</code> repos with <code>npm run eval</code>.
+            Run the deterministic scenarios against ephemeral <code>jj</code> repos with <code>cargo test -p jj-graph --test evals</code>.
           </figcaption>
         </figure>
       </section>
@@ -1459,7 +1467,7 @@ jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
       { id: 'sdlc-04', suite: 'SDLC', title: 'Route fixups in a megamerge via jj absorb + Jev router', sig: 'MEGAMERGE_NOT_EMPTY -> jj absorb --from; Jev routeHunk choice()', assert: 'megamergeUnpolluted === true' },
       { id: 'time-01', suite: 'DualTimeAxis', title: 'Surgical evolog restore preserving sibling arm', sig: 'Jev recommendRecovery -> jj restore --from', assert: 'changeBPreserved === true' },
       { id: 'conv-01', suite: 'Convergence', title: 'Post-merge convergence onto trunk()', sig: "jj git fetch + jj rebase -s 'roots(trunk()..@)' -o trunk()", assert: 'arm2RebasedOnTrunk === true' },
-      { id: 'pub-01', suite: 'Publishing', title: 'Verify the stack, publish green bottom layers', sig: 'jj fix + jj run -> PublishingGate -> planLayeredPublish', assert: 'publishedRedLayers === 0' },
+      { id: 'pub-01', suite: 'Publishing', title: 'Verify the stack, publish green bottom layers', sig: 'jj fix + jj run -> PublishingGate -> plan_layered_publish', assert: 'publishedRedLayers === 0' },
     ];
     const evalBody = document.getElementById('evalBody');
     function renderEvals(suite) {

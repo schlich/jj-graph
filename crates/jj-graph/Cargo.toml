@@ -1,0 +1,29 @@
+[package]
+name = "jj-graph"
+description = "A DAG-centred web UI for Jujutsu, with dry runs of every jj command"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "jj-graph"
+path = "src/main.rs"
+
+[dependencies]
+jjr.workspace = true
+jj-lib.workspace = true
+jj-frontend.workspace = true
+jj-cli.workspace = true
+pollster.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tiny_http.workspace = true
+rand.workspace = true
+jiff.workspace = true
+regex.workspace = true
+indexmap.workspace = true
+futures.workspace = true
+bstr.workspace = true
