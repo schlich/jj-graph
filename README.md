@@ -40,7 +40,10 @@ operations as a dry run, then commit to the result with one button.
 
 jj-graph is a Rust program built on jj's own libraries. Build it with Rust
 1.97 or newer; at run time it needs `jj` 0.47.1 on `PATH`, the release its
-libraries come from.
+libraries come from. With [devenv](https://devenv.sh), `devenv shell` brings
+Rust, jj, git and Node and adds `serve [REPO]`, `mcp [REPO]` and `jjr-eval`;
+`devenv up` serves this repository on port 7777, and `devenv test` runs every
+test, the eval scenarios included.
 
 ```sh
 cargo install --path crates/jj-graph
