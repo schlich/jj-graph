@@ -13,7 +13,9 @@ operations as a dry run, then commit to the result with one button.
 - **Changes are cards, and the change id leads.** A change you can still
   rewrite is a card with a grip. When a dry run rewrites one, the card stays
   put under the same id and shows only the commit underneath changing
-  (`a3d2→55e5`). **Evolution** lists every version a change has had.
+  (`a3d2→55e5`). **Evolution** lists every version a change has had, and
+  **Restore this version** previews putting one change back without
+  rewinding anything else.
 - **Colour means state, never branch.** jj has no current branch, so nothing
   is coloured by lane. The working copy, empty changes, conflicts and
   previewed rewrites each have their own look.
@@ -39,13 +41,19 @@ operations as a dry run, then commit to the result with one button.
 Needs `jj` 0.47 or newer and Node 20 or newer. There are no dependencies.
 
 ```sh
-node server.mjs [REPO] [--port 7777] [--host 127.0.0.1]
+node server.mjs [REPO] [--port 7777] [--host 127.0.0.1] [--verify-command CMD]
 ```
 
 To use it from a phone, bind an address the phone can reach, such as
 `--host 0.0.0.0`. The printed URL then carries a token, and the API refuses
 requests without it. Anyone holding that URL can rewrite the repository, so
 keep it to a network you trust.
+
+`--verify-command` is the build-and-test command that **Verify stack** runs in
+each revision (for example `--verify-command 'npm test'`). Without it,
+jj-graph reads `jj config get jjr.verify-command`, so a repository can carry
+its own: `jj config set --repo jjr.verify-command 'npm test'`. The command
+only ever comes from your configuration, never from a request.
 
 ## Gestures
 
@@ -75,7 +83,10 @@ Nothing you do in the graph touches the repository until you press **Apply**.
 
 Each step runs as `jj --at-op <previous step> --no-integrate-operation <command>`.
 jj performs the command for real, conflicts included, and writes an operation
-that it leaves out of the operation log. The graph then shows the repository
+that it leaves out of the operation log. Before it runs, the jjr guardrails
+check the step, with the revisions it rewrites resolved by jj at that point
+of the plan; a blocked step explains why and what to do instead, and a
+warning (an unverified bookmark, say) appears as a notice. The graph then shows the repository
 as of that operation. The working copy, the Git refs of a colocated
 repository, and `jj log` in your terminal all stay as they were.
 
@@ -94,8 +105,11 @@ marked out of date and Apply is disabled until you undo that step or discard.
 ## Limits
 
 - Commands with effects outside the repository (`git push`, `git fetch`) and
-  interactive ones (`split`, `squash -i`, `resolve`) cannot be dry-run and are
-  refused.
+  interactive ones (`squash -i`, `resolve`, `split` without paths) cannot be
+  dry-run and are refused. `split` with paths, `fix`, and `converge` (always
+  with `--no-interactive`) can.
+- `--ignore-immutable` is refused: a dry run never force-rewrites
+  `immutable()` history.
 - The graph draws at most 400 revisions of the revset, and the timeline the
   newest 14 operations.
 - A typed command that names a change created earlier in the same plan by a
@@ -111,10 +125,30 @@ the dry-run engine:
 - **Identity–state types (`jjr/types.mjs`)**: runtime and TypeScript branded
   separation between `ChangeId` (reverse-hex `k–z`), `CommitId` (hex `0–9a–f`),
   `OpId`, and `BookmarkName`.
-- **Guardrail pipeline (`jjr/guardrails.mjs`)**: six pre-flight rules
-  (Immutable Bedrock, Divergence Guard, Megamerge Fence, Publishing Gate,
-  Colocated Single-Writer Guard, and Workspace Discipline) that gate dry-runs,
-  pushes, Git interop, and workspace creation.
+- **Command model (`jjr/commands.mjs`)**: which revisions each jj command
+  rewrites, only reads, or points a bookmark at (`jj new X` reads `X`,
+  `jj new -B X` rewrites it, `jj squash` rewrites `@` and `@-`), so guardrails
+  check what a command really does.
+- **Guardrail pipeline (`jjr/guardrails.mjs`)**: eight rules that gate every
+  dry-run step, bookmark, push, Git command, and workspace creation:
+  Pre-flight (`trunk()` and `immutable_heads()` must resolve), Immutable
+  Bedrock (never `immutable()` or `::trunk()`, never `--ignore-immutable`),
+  Divergence Guard, Megamerge Fence, Publishing Gate (conflict-free,
+  non-empty, formatted, green; bookmarks included), Colocated Single-Writer
+  (git is read-only), Workspace Discipline, and Change-ID Addressing.
+- **Graph model and diagnostics (`jjr/graph.mjs`)**: the canonical DAG shape
+  of your work (single change, shallow stack, parallel arms, megamerge, resting)
+  with its publishing rule, and diagnostics with dry-runnable fixes for
+  structural-above-behavioral order, activation switches that are not on top or
+  not tiny, edited megamerges, clean conflict resolution, behavior without
+  tests, arms based on an old trunk, deep stacks, divergence, and Git features
+  jj does not support (submodules, LFS, `.gitattributes`, hooks).
+- **Verification and publishing (`server.mjs`, `jjr/runner.mjs`)**: **Verify
+  stack** runs `jj fix` and the verify command (`jj run --ignore-changes`) in
+  every mutable revision as operations it never keeps; the Publishing Gate
+  reads those results, and **Plan publishing** marks which bottom layers of a
+  stack can be published now for the configured forge (`jjr.forge`: Gerrit,
+  GitHub bookmarks, jj-stack, jj-spr).
 - **TypeSafe Jev System-One decisions (`jjr/jev.mjs`)**: wire-compatible
   `POST /v1/systemone` client (`choice`, `score`, `noul`) with calibrated
   offline fallback. Powers single-pass change triage, the Two-Part Dependency
@@ -126,9 +160,13 @@ the dry-run engine:
   for naming changes, bookmark slugs, and two-sentence diagnostic summaries
   (set `JJR_LLM_API_KEY` or `OPENAI_API_KEY`, with deterministic fallback).
 - **SDLC patterns & portable UI (`jjr/patterns.mjs`, `jjr/ui/`)**: dry-run
-  recipes (*Tidy First?*, TDD red-test verification, Branch by Abstraction,
-  local megamerges, post-merge convergence) and render-agnostic ViewModels that
-  port 1:1 to TUI (`jjr/ui/tui.mjs`) or GUI (`jjr/ui/gui.mjs`).
+  recipes (squash and edit workflows, *Tidy First?*, characterization tests,
+  TDD red-test verification, Branch by Abstraction, expand & contract,
+  isolated activation, local megamerges and `jj absorb`, shared-primitive
+  extraction, clean conflict resolution, stack validation, agent workspaces,
+  post-merge convergence), the six-phase SDLC lifecycle, and render-agnostic
+  ViewModels that port 1:1 to TUI (`jjr/ui/tui.mjs`) or GUI
+  (`jjr/ui/gui.mjs`).
 
 Open `/docs` while `server.mjs` is running (or open `docs/index.html` directly)
 for the interactive reference documentation.
@@ -136,11 +174,13 @@ for the interactive reference documentation.
 ## Develop
 
 ```sh
-npm test        # 23 unit + integration tests against throwaway jj repos
-npm run eval    # deterministic jjr eval harness (evals/harness.mjs)
+npm test        # 36 unit + integration tests against throwaway jj repos
+npm run eval    # 15-scenario deterministic jjr eval harness (evals/harness.mjs)
 ```
 
-The tests and eval harness build throwaway repositories with `jj` and cover the
-layout, dry-run plan, replay, apply, undo, history, evolution, jjr guardrails,
-TypeSafe Jev workflows, and portable UI ViewModels.
+The tests and eval harness build throwaway repositories with `jj` (and `git`
+for the convergence scenario's remote) and cover the layout, dry-run plan,
+replay, apply, undo, history, evolution, the command model, pre-flight,
+jjr guardrails, verification, layered publishing, TypeSafe Jev workflows, and
+portable UI ViewModels.
 

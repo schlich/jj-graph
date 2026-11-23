@@ -53,9 +53,27 @@
       "suite": "Guardrails",
       "title": "Halt stacking on divergent() while permitting recovery",
       "faultInjected": "Two visible commits share one ChangeId after a concurrent rewrite",
-      "jevSignal": "DivergenceGuard blocks `rebase`/`push` while allowing `jj converge` and `jj abandon`",
+      "jevSignal": "DivergenceGuard blocks `new`/`rebase`/`bookmark`/`push` while allowing `jj converge` and `jj abandon`",
       "expectedOutcome": "Stacking halts until 1:1 ChangeId cardinality is restored",
       "deterministicAssertions": ["finalDivergentCount === 0", "recoveryCommandAllowed === true"]
+    },
+    {
+      "id": "guard-05",
+      "suite": "Guardrails",
+      "title": "Never force-rewrite immutable()",
+      "faultInjected": "Agent retries a refused rewrite with `--ignore-immutable`, or squashes into a trunk commit with `--into`",
+      "jevSignal": "ImmutableBedrockGuard blocks `--ignore-immutable` and rewritten destinations (`squash --into`, `new -B`)",
+      "expectedOutcome": "Both commands are refused before jj runs; remediation suggests `jj new trunk()`",
+      "deterministicAssertions": ["immutableShasUnchanged === true", "guardrailBlocked === true"]
+    },
+    {
+      "id": "pre-01",
+      "suite": "Guardrails",
+      "title": "Pre-flight trunk() and immutable_heads() before mutating",
+      "faultInjected": "trunk() resolves to nothing; then immutable_heads() is overridden to exclude trunk()",
+      "jevSignal": "PreflightGuard blocks rewrites while trunk() is unresolved; ImmutableBedrockGuard keeps ::trunk() as bedrock",
+      "expectedOutcome": "No rewrite runs without a resolved bedrock, and trunk history stays untouched even though jj itself would allow it",
+      "deterministicAssertions": ["preflightBlocked === true", "trunkHistoryUnchanged === true"]
     },
     {
       "id": "sdlc-01",
@@ -71,9 +89,9 @@
       "suite": "SDLC",
       "title": "TDD Red-Test verification without WIP commits",
       "faultInjected": "New feature + unit test in `@` requiring proof that the test fails without implementation",
-      "jevSignal": "JjrPatterns.verifyRedTest emits `jj split --parallel` -> test -> `jj squash --from @+ --into @`",
-      "expectedOutcome": "Test verified red in isolation, then implementation folded back into a single green revision",
-      "deterministicAssertions": ["finalMutableCount === 1", "allCommitsPassTests === true"]
+      "jevSignal": "JjrPatterns.verifyRedTest emits `jj split --parallel` -> `jj run --ignore-changes -r @` (red) -> `jj squash --from @ --into <change> -u`",
+      "expectedOutcome": "Test verified red in isolation, then the tests fold back into the implementation, which kept the change id: one green revision",
+      "deterministicAssertions": ["finalMutableCount === 1", "changeIdPreserved === true", "allCommitsPassTests === true"]
     },
     {
       "id": "sdlc-03",
@@ -88,8 +106,8 @@
       "id": "sdlc-04",
       "suite": "SDLC",
       "title": "Route scattered fixups atop megamerge via `jj absorb` + Jev hunk router",
-      "faultInjected": "2+ parallel feature arms composed in a local megamerge with integration fixes in `@`",
-      "jevSignal": "Unambiguous hunks flow via `jj absorb`; ambiguous hunks ranked by Jev `routeHunk` (`choice`)",
+      "faultInjected": "2+ parallel feature arms composed in a local megamerge, with an integration fix made in the megamerge itself",
+      "jevSignal": "MEGAMERGE_NOT_EMPTY suggests `jj absorb --from <megamerge>`; ambiguous hunks ranked by Jev `routeHunk` (`choice`)",
       "expectedOutcome": "Fixups route to owning arms while the megamerge node remains clean",
       "deterministicAssertions": ["megamergeUnpolluted === true", "allArmsPassTests === true"]
     },
@@ -107,9 +125,18 @@
       "suite": "Convergence",
       "title": "Post-merge convergence to minimal resting state",
       "faultInjected": "Arm 1 landed upstream into trunk(); Arm 2 remains active",
-      "jevSignal": "JjrPatterns.postMergeConvergence rebases remaining mutable roots onto trunk()",
+      "jevSignal": "ROOT_BEHIND_TRUNK flags Arm 2; JjrPatterns.postMergeConvergence runs `jj rebase -s 'roots(trunk()..@)' -o 'trunk()' --skip-emptied`",
       "expectedOutcome": "Active Arm 2 rebases cleanly atop trunk() with zero stale empty commits",
       "deterministicAssertions": ["arm1InImmutable === true", "arm2RebasedOnTrunk === true"]
+    },
+    {
+      "id": "pub-01",
+      "suite": "Publishing",
+      "title": "Verify the stack, publish only green bottom layers",
+      "faultInjected": "A three-layer stack whose middle layer breaks the build and whose top layer is unformatted",
+      "jevSignal": "`jj fix` + `jj run --ignore-changes` per revision feed the PublishingGate; planLayeredPublish walks the stack bottom-up",
+      "expectedOutcome": "Only the green bottom layer is publishable; bookmarking the red layer is refused",
+      "deterministicAssertions": ["publishedRedLayers === 0", "unformattedFilesReported === true"]
     }
   ]
 }

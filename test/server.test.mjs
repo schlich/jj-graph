@@ -33,6 +33,12 @@ test('command helpers', () => {
   assert.throws(() => validateArgs(['git', 'push']), /cannot be dry-run/);
   assert.throws(() => validateArgs(['squash', '-i']), /not allowed/);
   assert.throws(() => validateArgs(['rebase', '--at-op=abc']), /not allowed/);
+  // Never force-rewrite immutable(); split only with paths; converge never prompts.
+  assert.throws(() => validateArgs(['describe', '--ignore-immutable', 'x']), /--ignore-immutable/);
+  assert.throws(() => validateArgs(['split', '-r', 'x']), /needs paths/);
+  assert.deepEqual(validateArgs(['split', '--parallel', 'src/impl.js']), ['split', '--parallel', 'src/impl.js']);
+  assert.deepEqual(validateArgs(['converge']), ['converge', '--no-interactive']);
+  assert.deepEqual(validateArgs(['fix', '-s', '@']), ['fix', '-s', '@']);
   assert.equal(displayCommand(['rebase', '-s', 'k'.repeat(32), '-o', 'main']), 'jj rebase -s kkkkkkkk -o main');
   assert.equal(displayCommand(['describe', '-m', 'two words']), 'jj describe -m "two words"');
 });

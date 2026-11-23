@@ -401,6 +401,13 @@ dialog#sheet::backdrop { background: rgb(0 0 0 / 0.5); }
 .steps li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
 .steps li code:first-child { color: var(--text); margin: 0; }
 .steps li.redo, .steps li.old { opacity: 0.55; }
+.steps li .s { color: var(--muted); font-size: 13px; }
+.state { font: 700 11px var(--mono); letter-spacing: 0.06em; }
+.state.green { color: var(--accent); }
+.state.red { color: var(--danger); }
+.state.unknown { color: var(--muted); }
+.sev-error { color: var(--danger); }
+.sev-warning { color: var(--dry); }
 pre.diff { font: 12px/1.45 var(--mono); margin: 0; white-space: pre; overflow: auto; }
 pre.diff .add { color: light-dark(#17753f, #6fdc9a); }
 pre.diff .del { color: var(--danger); }

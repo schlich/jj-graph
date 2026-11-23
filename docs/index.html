@@ -279,13 +279,13 @@
     p { margin: 0 0 1rem; color: var(--ink-2); }
     p strong { color: var(--ink); }
 
-    ul.plain {
+    ul.plain, ol.plain {
       margin: 0 0 1.1rem;
       padding-left: 1.25rem;
       color: var(--ink-2);
     }
-    ul.plain li { margin-bottom: 0.45rem; }
-    ul.plain strong { color: var(--ink); }
+    ul.plain li, ol.plain li { margin-bottom: 0.45rem; }
+    ul.plain strong, ol.plain strong { color: var(--ink); }
 
     /* Clean editorial tables */
     table {
@@ -611,7 +611,7 @@
 
               <rect x="206" y="14" width="212" height="66" rx="4" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4"/>
               <text x="312" y="37" text-anchor="middle" font-family="var(--mono)" font-size="12" font-weight="600" fill="var(--ink)">JjrGuardrailPipeline</text>
-              <text x="312" y="54" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--muted)">6 hard rules + JjrGraph invariants</text>
+              <text x="312" y="54" text-anchor="middle" font-family="var(--sans)" font-size="11" fill="var(--muted)">8 hard rules + JjrGraph invariants</text>
               <text x="312" y="69" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--accent)">jjr/guardrails.mjs · jjr/graph.mjs</text>
 
               <rect x="462" y="14" width="206" height="66" rx="4" fill="var(--dry-soft)" stroke="var(--dry)"/>
@@ -668,13 +668,18 @@
           <tbody>
             <tr>
               <td><code>jjr/types.mjs</code></td>
-              <td>Identity–state branded validation</td>
-              <td><code>asChangeId</code>, <code>asCommitId</code>, <code>asOpId</code>, <code>JjrTypeError</code></td>
+              <td>Identity–state branded validation, canonical shapes, verification state</td>
+              <td><code>asChangeId</code>, <code>asCommitId</code>, <code>asOpId</code>, <code>JjrTypeError</code>, <code>CANONICAL_SHAPES</code>, <code>verificationState</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/commands.mjs</code></td>
+              <td>jj CLI model: which revisions a command rewrites, reads, or bookmarks</td>
+              <td><code>describeMutation</code>, <code>parseJjArgs</code>, <code>JJ_COMMAND_SPECS</code></td>
             </tr>
             <tr>
               <td><code>jjr/graph.mjs</code></td>
-              <td>In-memory DAG, zones &amp; diagnostics</td>
-              <td><code>JjrGraph</code>, <code>fromJjGraphNodes</code>, <code>evaluateDependency</code></td>
+              <td>In-memory DAG, zones, pre-flight facts, shapes &amp; diagnostics</td>
+              <td><code>JjrGraph</code>, <code>fromJjGraphNodes</code>, <code>resolve</code>, <code>classifyShape</code>, <code>evaluateDependency</code></td>
             </tr>
             <tr>
               <td><code>jjr/jev.mjs</code></td>
@@ -684,12 +689,17 @@
             <tr>
               <td><code>jjr/guardrails.mjs</code></td>
               <td>Composable pre-flight safety pipeline</td>
-              <td><code>JjrGuardrailPipeline</code>, 6 default rules, <code>evaluateWithJev</code></td>
+              <td><code>JjrGuardrailPipeline</code>, 8 default rules, <code>evaluateWithJev</code>, <code>isReadOnlyGitCommand</code></td>
             </tr>
             <tr>
               <td><code>jjr/patterns.mjs</code></td>
-              <td>Self-evident SDLC &amp; recovery recipes</td>
-              <td><code>JjrPatterns</code>, <code>planTimeTravelRecovery</code>, <code>suggestPatternsForGraph</code></td>
+              <td>Self-evident SDLC &amp; recovery recipes, forge adapters, lifecycle</td>
+              <td><code>JjrPatterns</code>, <code>FORGE_ADAPTERS</code>, <code>SDLC_LIFECYCLE</code>, <code>planTimeTravelRecovery</code>, <code>suggestPatternsForGraph</code></td>
+            </tr>
+            <tr>
+              <td><code>jjr/runner.mjs</code></td>
+              <td>Guarded dry runs, stack verification, layered publishing</td>
+              <td><code>JjrRunner</code>, <code>dryRun</code>, <code>verifyStack</code>, <code>planLayeredPublish</code></td>
             </tr>
             <tr>
               <td><code>jjr/narrator.mjs</code></td>
@@ -739,10 +749,30 @@
         <h3>Two Zones &amp; Dual Time Axes</h3>
         <p>
           <code>JjrGraph</code> partitions every loaded revision into <code>immutable</code> (shared bedrock such as <code>trunk()</code>
-          and tags) or <code>mutable</code> (local work you can freely rewrite). Recovery operates across two orthogonal time axes:
+          and tags) or <code>mutable</code> (local work you can freely rewrite). Before anything rewrites the graph, a
+          <strong>pre-flight check</strong> resolves <code>trunk()</code> and <code>immutable_heads()</code> (whose default is
+          <code>trunk() | tags() | untracked_remote_bookmarks() | untracked_remote_tags()</code>): an unresolvable boundary blocks
+          every rewrite, and <code>::trunk()</code> stays bedrock even when <code>immutable_heads()</code> was overridden without it.
+          Recovery operates across two orthogonal time axes:
           the repository-wide <strong>Operation Log</strong> (<code>jj op restore</code>) and per-change <strong>Evolution Log</strong>
-          (<code>jj restore --from &lt;commit&gt; --to &lt;change&gt;</code>), preferring surgical single-change recovery whenever sibling arms have independent edits.
+          (<code>jj restore --from &lt;commit&gt; --to &lt;change&gt;</code>, or an offset such as <code>--from lnv/1</code>), preferring surgical single-change recovery whenever sibling arms have independent edits.
+          In <code>jj-graph</code>, a change's <em>Evolution</em> sheet dry-runs that restore for any earlier version.
         </p>
+        <p>
+          Every mutable change should be one of the reference's <strong>canonical shapes</strong>, and
+          <code>JjrGraph.classifyShape()</code> reports which one the mutable zone is in, together with its publishing rule:
+        </p>
+        <table>
+          <thead><tr><th>Shape</th><th>Optimal DAG</th><th>Publishing boundary</th></tr></thead>
+          <tbody>
+            <tr><td><code>single</code></td><td>One change rooted at <code>trunk()</code></td><td>One bookmark, or <code>jj git push -c @-</code> when ready</td></tr>
+            <tr><td><code>stack</code></td><td>Shallow linear stack, bottom-up by stability (<code>DEEP_STACK</code> past 6)</td><td>Publish bottom layers once independently reviewable; keep drafts local</td></tr>
+            <tr><td><code>parallel</code></td><td>Sibling arms off <code>trunk()</code></td><td>Independent bookmarks / PRs that land in any order</td></tr>
+            <tr><td><code>megamerge</code></td><td>Arms joined by a local octopus merge + empty <code>@</code></td><td>Never push the megamerge; push the arms</td></tr>
+            <tr><td><code>resting</code></td><td>A single empty <code>@</code> atop <code>trunk()</code></td><td>Nothing to publish</td></tr>
+            <tr><td><code>branching</code></td><td>Not canonical: one root that forks</td><td>Test each fork's dependency; parallelize what is independent</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <!-- 03 JEV SYSTEM-ONE -->
@@ -759,7 +789,7 @@
         </p>
 
         <ul class="plain">
-          <li><strong>Single-Pass Change Triage (<code>triageChange</code>):</strong> Batches 4 questions in one call: <code>intent</code> (<code>choice</code>), structural/behavioral <code>entangled</code> (<code>noul</code>), <code>publishReadiness</code> (<code>score</code>), and <code>hasDebugOrSecrets</code> (<code>noul</code>).</li>
+          <li><strong>Single-Pass Change Triage (<code>triageChange</code>):</strong> Batches 5 questions in one call: <code>intent</code> (<code>choice</code>), structural/behavioral <code>entangled</code> (<code>noul</code>), <code>publishReadiness</code> (<code>score</code>), <code>hasDebugOrSecrets</code> (<code>noul</code>), and <code>apiWithoutConsumer</code> (<code>noul</code>: a new API with no caller or test, against the rule to pair every new API with a consumer).</li>
           <li><strong>Two-Part Dependency Gate (<code>assessDependency</code>):</strong> Runs two parallel <code>noul</code> propositions—<em>Causal Necessity</em> and <em>Independent Reviewability</em>. When either probability lands inside the ambiguous band (<code>0.28–0.72</code>), jjr pauses to confirm with the developer instead of guessing.</li>
           <li><strong>Behind-the-Scenes Guardrail Augmentation (<code>evaluateActionRisk</code>):</strong> Catches unmarked local scratchpads before a push and scores blast radius to recommend dry-run previews automatically.</li>
           <li><strong>Recovery &amp; Absorb Routing (<code>recommendRecovery</code>, <code>routeHunk</code>):</strong> Chooses surgical <code>evolog</code> restore vs. repo-wide <code>op restore</code>, and ranks candidate feature arms when a working-copy fixup atop a megamerge has ambiguous ownership.</li>
@@ -856,10 +886,23 @@ const { answers } = await jev.triageChange({
           <h2>Guardrail Pipeline</h2>
         </div>
         <p>
-          Every mutation, push, Git interop command, and workspace action passes through <code>JjrGuardrailPipeline</code>
-          before touching the repository—including inside <code>jj-graph</code>'s <code>POST /api/dry</code> handler.
+          Every mutation, bookmark, push, Git interop command, and workspace action passes through <code>JjrGuardrailPipeline</code>
+          before touching the repository—including every step of <code>jj-graph</code>'s <code>POST /api/dry</code> handler, where
+          the revisions a command rewrites are resolved by jj itself. <code>jjr/commands.mjs</code> knows what each command does to the
+          revisions it names: <code>jj new X</code> only reads <code>X</code>, <code>jj new -B X</code> rewrites it, <code>jj new -A X</code>
+          rewrites its children, and <code>jj squash --into X</code> rewrites <code>X</code>.
           Blockers always include a concrete remediation command rather than a dead-end error.
         </p>
+        <ol class="plain">
+          <li><strong>PreflightGuard</strong>: blocks every rewrite while <code>trunk()</code> or <code>immutable_heads()</code> does not resolve; warns when shared history is unprotected.</li>
+          <li><strong>ImmutableBedrockGuard</strong>: never rewrites <code>immutable()</code> (or <code>::trunk()</code>), and refuses <code>--ignore-immutable</code> outright.</li>
+          <li><strong>DivergenceGuard</strong>: halts stacking, bookmarking and pushing while <code>divergent()</code> is non-empty, even for <code>jj new</code>; <code>abandon</code>, <code>converge</code>, <code>metaedit --update-change-id</code> and <code>op restore</code> stay open.</li>
+          <li><strong>MegamergeFence</strong>: hard-blocks pushing or bookmarking any range that contains a local composition merge.</li>
+          <li><strong>PublishingGate</strong>: before a bookmark or a push, every revision in the range is conflict-free, non-empty (merges and blueprints excepted), formatted (<code>jj fix</code>), and green (<code>jj run</code>). Known failures block both; unverified snapshots block a push and warn on a bookmark.</li>
+          <li><strong>ColocatedGitGuard</strong>: jj is the only writer; only read-only git (<code>log</code>, <code>show</code>, <code>diff</code>, <code>status</code>, listing <code>branch</code>/<code>tag</code>…) passes, and everything else gets its jj equivalent.</li>
+          <li><strong>WorkspaceDisciplineGuard</strong>: workspaces are for parallel agents, test suites and builds, never for switching branches.</li>
+          <li><strong>ChangeIdAddressingGuard</strong>: warns when mutable work is named by its rotating commit id instead of its change id.</li>
+        </ol>
 
         <figure class="instrument">
           <div class="inst-head">
@@ -869,17 +912,21 @@ const { answers } = await jev.triageChange({
           <div class="inst-body">
             <div class="btn-row" id="guardBtns">
               <button class="btn active" type="button" data-guard="megamerge">Push megamerge</button>
+              <button class="btn" type="button" data-guard="preflight">trunk() unresolved</button>
               <button class="btn" type="button" data-guard="immutable">Rewrite immutable()</button>
-              <button class="btn" type="button" data-guard="colocated">git checkout (colocated)</button>
+              <button class="btn" type="button" data-guard="force">--ignore-immutable</button>
+              <button class="btn" type="button" data-guard="colocated">git fetch (colocated)</button>
               <button class="btn" type="button" data-guard="divergent">Stack on divergent()</button>
               <button class="btn" type="button" data-guard="unverified">Push conflicted arm</button>
+              <button class="btn" type="button" data-guard="bookmark">Bookmark unverified</button>
               <button class="btn" type="button" data-guard="workspace">workspace add (branch)</button>
-              <button class="btn" type="button" data-guard="clean">Push clean arm</button>
+              <button class="btn" type="button" data-guard="commitid">Address by commit id</button>
+              <button class="btn" type="button" data-guard="clean">Push verified arm</button>
             </div>
             <div id="guardOutput" class="callout danger"></div>
           </div>
           <figcaption>
-            All six deterministic rules compose linearly; <code>evaluateWithJev()</code> adds calibrated scratchpad and blast-radius advisories when hard rules pass.
+            All eight deterministic rules compose linearly; <code>evaluateWithJev()</code> adds calibrated scratchpad and blast-radius advisories when hard rules pass.
           </figcaption>
         </figure>
       </section>
@@ -908,24 +955,72 @@ jj split -r kmpqrstu</code></pre>
 
         <div class="pattern-item">
           <div class="pattern-head">
+            <h3>Characterization Tests Before Refactors</h3>
+            <span class="pattern-tag">JjrPatterns.characterizationTestsBelow()</span>
+          </div>
+          <p>Before restructuring untested code, slip a test-only change below the refactor so reviewers and CI see existing behavior locked down before anything moves.</p>
+          <pre><code>jj new --no-edit -B kmpqrstu -m "test: characterize rate limiter"
+jj run --ignore-changes -r 'kmpqrstu- | kmpqrstu' -- npm test</code></pre>
+        </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
             <h3>TDD Red-Test Verification</h3>
             <span class="pattern-tag">JjrPatterns.verifyRedTest()</span>
           </div>
-          <p>Prove a new test actually fails without its implementation by lifting implementation files into a parallel sibling, running the test suite, and folding them back into a single green commit.</p>
-          <pre><code>jj split --parallel src/billing/ledger.ts
-npm test                      # confirm red
-jj squash --from @+ --into @  # restore single green node</code></pre>
+          <p>Prove a new test actually fails without its implementation. <code>jj split --parallel</code> keeps the change id on the selected implementation files and moves <code>@</code> to a tests-only sibling; once the run is red, the tests fold back into the implementation, so the change keeps its id and no red commit stays in the DAG.</p>
+          <pre><code>jj split --parallel -m "feat: ledger totals" src/billing/ledger.ts
+jj run --ignore-changes -r @ -- npm test                  # confirm red
+jj squash --from @ --into kmpqrstu --use-destination-message
+jj edit kmpqrstu</code></pre>
+        </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>Parallel Change &amp; Isolated Activation</h3>
+            <span class="pattern-tag">expandContract() · isolateActivation()</span>
+          </div>
+          <p>Breaking changes expand, migrate, then contract, each buildable on its own. User-facing activation is a tiny top-level change on top of dark plumbing, so an emergency rollback reverts one switch (<code>ACTIVATION_NOT_ON_TOP</code> catches work stacked above it).</p>
+          <pre><code>jj new trunk() -m "feat: expand user id with uuid"
+jj new -m "refactor: migrate user id callers to uuid"
+jj new -m "chore: contract user id, remove int"
+jj new zyxwvuts -m "feat: activate new-billing"   # on top of the plumbing</code></pre>
         </div>
 
         <div class="pattern-item">
           <div class="pattern-head">
             <h3>Local Octopus Megamerge + <code>jj absorb</code></h3>
-            <span class="pattern-tag">JjrPatterns.localMegamerge()</span>
+            <span class="pattern-tag">localMegamerge() · absorbFixups() · extractSharedPrimitive()</span>
           </div>
-          <p>Test independent feature arms together without coupling their histories. <code>MegamergeFence</code> ensures the local merge can never leak to a remote; <code>jj absorb</code> (assisted by Jev's hunk router when ambiguous) flows fixups back to their owning arms.</p>
+          <p>Test independent feature arms together without coupling their histories. <code>MegamergeFence</code> ensures the local merge can never leak to a remote; <code>jj absorb</code> (assisted by Jev's hunk router when ambiguous) flows fixups back to their owning arms, and <code>MEGAMERGE_NOT_EMPTY</code> catches edits made in the merge itself. When composition reveals a primitive both arms need, it becomes a common ancestor beneath them instead of stacking one arm on the other.</p>
           <pre><code>jj new arm_a arm_b arm_c -m "local: dev megamerge"
 jj new
-jj absorb</code></pre>
+jj absorb                              # jj absorb --from &lt;megamerge&gt; if it was edited directly
+jj new --no-edit -B arm_a -B arm_b -m "feat: shared parser"
+jj squash --from @ --into 'arm_a- &amp; arm_b-' src/parse.ts</code></pre>
+        </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>Clean Conflict Resolution</h3>
+            <span class="pattern-tag">JjrPatterns.resolveConflictCleanly()</span>
+          </div>
+          <p>Resolve in a child commit so the resolution is reviewable on its own, then fold it down; it propagates to every descendant. <code>CONFLICTED_CHANGE</code> suggests the fold as soon as a non-conflicted child exists.</p>
+          <pre><code>jj new pqrstuvw
+jj resolve        # or edit the markers
+jj diff           # inspect exactly the resolution
+jj squash</code></pre>
+        </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>Stack Validation &amp; Layered Publishing</h3>
+            <span class="pattern-tag">stackValidation() · JjrRunner.planLayeredPublish()</span>
+          </div>
+          <p>Before publishing, format every mutable revision and build and test each one on its own. <code>jj-graph</code>'s <strong>Verify stack</strong> does both as operations it never keeps (<code>POST /api/jjr/verify</code>; set the command with <code>--verify-command</code> or <code>jj config set --repo jjr.verify-command 'npm test'</code>). The Publishing Gate then reads those results: <strong>Plan publishing</strong> marks the green bottom layers publishable and keeps the rest local.</p>
+          <pre><code>jj fix -s 'roots((trunk()..@) &amp; mutable())'
+jj run --ignore-changes -r '(trunk()..@) &amp; mutable()' -- npm test
+jj git push -c kmpqrstu    # only the layers the gate passed</code></pre>
         </div>
 
         <div class="pattern-item">
@@ -933,10 +1028,53 @@ jj absorb</code></pre>
             <h3>Branch by Abstraction &amp; Post-Merge Convergence</h3>
             <span class="pattern-tag">branchByAbstraction() · postMergeConvergence()</span>
           </div>
-          <p>Swap subsystems across 5 independently buildable revisions (seam → dark implementation → isolated activation switch → remove legacy → optional contract), then converge landed work back onto <code>trunk()</code>.</p>
+          <p>Swap subsystems across 5 independently buildable revisions (seam → dark implementation → isolated activation switch → remove legacy → optional contract), then converge landed work back onto <code>trunk()</code>. jj 0.47 takes several revisions for <code>-s</code> without the old <code>all:</code> prefix; <code>--skip-emptied</code> collapses changes whose diffs already landed. <code>ROOT_BEHIND_TRUNK</code> flags arms still based on an old trunk.</p>
           <pre><code>jj git fetch
-jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
+jj rebase -s 'roots(trunk()..@)' -o 'trunk()' --skip-emptied</code></pre>
         </div>
+
+        <div class="pattern-item">
+          <div class="pattern-head">
+            <h3>Authoring Loops &amp; Agent Workspaces</h3>
+            <span class="pattern-tag">squashWorkflow() · editWorkflow() · composeAgentWorkspaces()</span>
+          </div>
+          <p>Describe first and flush hunks down from an empty <code>@</code> (squash workflow), or edit a change in place and insert newly found prerequisites below it (edit workflow). Parallel agents each get a <code>jj workspace</code>; the orchestrator composes their working copies in one local megamerge.</p>
+          <pre><code># squash workflow
+jj describe -m "feat: retry budget"
+jj new
+jj squash
+# edit workflow
+jj edit kmpqrstu
+jj new -B @ -m "refactor: extract clock"
+jj next --edit
+# agent workspaces
+jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
+        </div>
+
+        <h3>Forge Adapters</h3>
+        <p><code>FORGE_ADAPTERS</code> (choose with <code>jj config set --repo jjr.forge gerrit</code>) decides the publish command; stack-aware forges upload from the top publishable layer.</p>
+        <table>
+          <thead><tr><th>Forge</th><th>Model alignment</th><th>Publish</th><th>Caveat</th></tr></thead>
+          <tbody>
+            <tr><td><code>gerrit</code></td><td>Native 1:1 (Change-Id = change id)</td><td><code>jj gerrit upload -r</code></td><td>Configure local commit trailers, or server-side trailers alter remote commit ids</td></tr>
+            <tr><td><code>github-bookmarks</code></td><td>One bookmark = one branch</td><td><code>jj git push -c</code></td><td>Force-pushes disrupt incremental review diffs</td></tr>
+            <tr><td><code>github-stack</code></td><td>One change = one PR</td><td><code>jj-stack submit</code></td><td>Unstack before reordering middle commits</td></tr>
+            <tr><td><code>github-spr</code></td><td>High locally, translated remotely</td><td><code>jj-spr diff -r</code></td><td>Needs direct write access; no fork PRs</td></tr>
+          </tbody>
+        </table>
+
+        <h3>SDLC Lifecycle</h3>
+        <table>
+          <thead><tr><th>Phase</th><th>Graph discipline</th><th>Recipes</th></tr></thead>
+          <tbody>
+            <tr><td>1. Discovery / Spike</td><td>Work anonymously in <code>@</code></td><td><code>squash-workflow</code></td></tr>
+            <tr><td>2. Safety Net</td><td>Characterization tests below active work</td><td><code>characterization-tests</code></td></tr>
+            <tr><td>3. Structural Prep</td><td>Refactors, seams and expansions beneath behavior</td><td><code>tidy-first</code>, <code>expand-contract</code>, <code>branch-by-abstraction</code></td></tr>
+            <tr><td>4. Behavioral Implementation</td><td>Vertical slices with bundled tests (<code>BEHAVIOR_WITHOUT_TESTS</code>)</td><td><code>tdd-red-test</code>, <code>edit-workflow</code></td></tr>
+            <tr><td>5. Integration &amp; Verification</td><td>Megamerge, absorb, <code>jj fix</code>, every node green</td><td><code>local-megamerge</code>, <code>absorb-fixups</code>, <code>resolve-conflict</code>, <code>stack-validation</code></td></tr>
+            <tr><td>6. Activation &amp; Cleanup</td><td>Publish layer by layer, isolated switch, contract, converge</td><td><code>isolate-activation</code>, <code>post-merge-convergence</code></td></tr>
+          </tbody>
+        </table>
       </section>
 
       <!-- 06 PORTABLE TUI / GUI -->
@@ -985,14 +1123,15 @@ jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
 
         <figure class="instrument">
           <div class="inst-head">
-            <span class="inst-title">Figure 6 · 12-Scenario Eval Matrix</span>
+            <span class="inst-title">Figure 6 · 15-Scenario Eval Matrix</span>
             <div class="btn-row" id="evalFilters">
-              <button class="btn active" type="button" data-suite="All">All (12)</button>
+              <button class="btn active" type="button" data-suite="All">All (15)</button>
               <button class="btn" type="button" data-suite="Topology">Topology</button>
               <button class="btn" type="button" data-suite="Guardrails">Guardrails</button>
               <button class="btn" type="button" data-suite="SDLC">SDLC</button>
               <button class="btn" type="button" data-suite="DualTimeAxis">Time Axis</button>
               <button class="btn" type="button" data-suite="Convergence">Convergence</button>
+              <button class="btn" type="button" data-suite="Publishing">Publishing</button>
             </div>
           </div>
           <div class="inst-body" style="padding:0">
@@ -1032,9 +1171,9 @@ jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
             <p>Git trained an entire generation of engineers (and now coding agents) to treat version control as an append-only tape of chronological accidents. Even after adopting Jujutsu (<code>jj</code>)—which gives us stable Change IDs, anonymous branches, first-class algebraic conflicts, and an undoable operation log—most humans and agents still use <code>jj</code> like Git with shorter flags. They stack unrelated features linearly, accidentally push local integration merges, mix structural refactors with behavioral changes, and burn frontier-LLM calls just to classify a diff.</p>
             <p>We built <strong>jjr</strong>, an opinionated framework library and visual workspace on top of <code>jj</code> (integrated directly with <code>jj-graph</code>'s dry-run engine) that turns Jujutsu's raw graph primitives into self-evident patterns, pre-flight guardrails, and calibrated active feedback.</p>
             <p><strong>1. Identity–State Separation.</strong> Branded <code>ChangeId</code> (reverse-hex <code>k–z</code>) and <code>CommitId</code> (hex <code>0–9a–f</code>) types catch stale-SHA bugs immediately.</p>
-            <p><strong>2. Real Dry-Run Guardrails.</strong> Every rewrite previews via <code>jj --at-op &lt;tip&gt; --no-integrate-operation</code> and passes through six hard rules (Immutable Bedrock, Divergence Guard, Megamerge Fence, Publishing Gate, Colocated Single-Writer Guard, Workspace Discipline) before touching disk.</p>
+            <p><strong>2. Real Dry-Run Guardrails.</strong> Every rewrite previews via <code>jj --at-op &lt;tip&gt; --no-integrate-operation</code> and passes through eight hard rules (Pre-flight, Immutable Bedrock, Divergence Guard, Megamerge Fence, Publishing Gate, Colocated Single-Writer Guard, Workspace Discipline, Change-ID Addressing) before touching disk. The Publishing Gate reads real results: <code>jj fix</code> and <code>jj run</code> verify every layer, and only the green bottom of a stack gets published.</p>
             <p><strong>3. TypeSafe Jev (System One) + Light LLM (System Two).</strong> Fast, non-autoregressive calibrated decisions (<code>choice</code>, <code>score</code>, <code>noul</code>) power change triage, the Two-Part Dependency Gate (pausing for human confirmation in the ambiguous probability band), blast-radius advisories, surgical <code>evolog</code> recovery routing, and hunk routing. A lightweight LLM only runs when prose is needed for commit titles and summaries.</p>
-            <p><strong>4. Portable TUI/GUI ViewModels &amp; Agentic Evals.</strong> Render-agnostic ViewModels port 1:1 to terminal ANSI or web/desktop UIs, validated by a 12-scenario eval harness over real throwaway <code>jj</code> repositories.</p>
+            <p><strong>4. Portable TUI/GUI ViewModels &amp; Agentic Evals.</strong> Render-agnostic ViewModels port 1:1 to terminal ANSI or web/desktop UIs, validated by a 15-scenario eval harness over real throwaway <code>jj</code> repositories.</p>
             <p style="margin-bottom:0"><em>Git made rebasing scary. Jujutsu made rebasing fearless. jjr makes clean graph discipline—and calibrated machine assistance—the path of least resistance.</em></p>
           </div>
         </div>
@@ -1139,19 +1278,47 @@ jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
         msg: 'Push range includes local composition merge [wxyzklmn] ("local: dev megamerge"). Jev corroborated scratchpad signal (p=0.92).',
         fix: 'jj git push -c kmpqrstu   # push feature arms independently',
       },
+      preflight: {
+        cls: 'danger',
+        rule: 'PreflightGuard',
+        status: 'BLOCKED',
+        msg: 'trunk() or immutable_heads() does not resolve (trunk() resolves to no revision), so the immutable boundary is unknown. Every rewrite waits until it does.',
+        fix: "jj log -r 'trunk() | immutable_heads()'",
+      },
       immutable: {
         cls: 'danger',
         rule: 'ImmutableBedrockGuard',
         status: 'BLOCKED',
-        msg: 'Blocked mutation on immutable() revision [xrvryluu] (main). Shared history cannot be rewritten.',
+        msg: 'Blocked mutation on immutable() revision [xrvryluu] (main). Shared history cannot be rewritten; ::trunk() counts as bedrock even when immutable_heads() omits it.',
         fix: 'jj new trunk() -m "feat: start new mutable change"',
+      },
+      force: {
+        cls: 'danger',
+        rule: 'ImmutableBedrockGuard',
+        status: 'BLOCKED',
+        msg: 'Blocked --ignore-immutable: jjr never force-rewrites immutable() history. jj-graph refuses the flag in any dry run.',
+        fix: 'jj new trunk() -m "fix: follow-up change"',
       },
       colocated: {
         cls: 'danger',
         rule: 'ColocatedGitGuard',
         status: 'BLOCKED',
-        msg: 'Blocked mutating Git command "git checkout main" in colocated .jj/.git repository. Running git checkout on conflicted jj commits materializes .jjconflict-* trees.',
-        fix: 'jj new main   # keep jj as exclusive writer',
+        msg: 'Blocked mutating Git command "git fetch" in colocated .jj/.git repository: jj is the only writer, git is read-only. Fetching behind jj\'s back leaves conflicted bookmarks (??).',
+        fix: 'jj git fetch',
+      },
+      bookmark: {
+        cls: 'dry',
+        rule: 'PublishingGate',
+        status: 'WARNING',
+        msg: 'Not verified yet: pqrstuvw. Bookmarks are export pointers, so the gate checks them like a push; an unverified snapshot warns here and blocks the push.',
+        fix: "jj run --ignore-changes -r 'trunk()..pqrstuvw' -- npm test",
+      },
+      commitid: {
+        cls: 'dry',
+        rule: 'ChangeIdAddressingGuard',
+        status: 'WARNING',
+        msg: 'Mutable work addressed by commit id (8a12be04 → kmpqrstu). Commit ids rotate on every rewrite, so a retry would act on a stale snapshot.',
+        fix: 'jj describe kmpqrstu -m "..."',
       },
       divergent: {
         cls: 'danger',
@@ -1165,7 +1332,7 @@ jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
         rule: 'PublishingGate',
         status: 'BLOCKED',
         msg: 'Revision [pqrstuvw] carries an unresolved algebraic conflict and failed test verification.',
-        fix: 'jj edit pqrstuvw && jj resolve && npm test',
+        fix: 'jj new pqrstuvw   # resolve there, check jj diff, then jj squash',
       },
       workspace: {
         cls: 'danger',
@@ -1176,9 +1343,9 @@ jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
       },
       clean: {
         cls: 'accent',
-        rule: 'All 6 Hard Rules + Jev Risk Advisor',
+        rule: 'All 8 Hard Rules + Jev Risk Advisor',
         status: 'ALLOWED',
-        msg: 'Revision [kmpqrstu] is mutable, non-divergent, conflict-free, green, and scored ready-to-land by Jev (score=2.84, blastRadius=single-change).',
+        msg: 'Revision [kmpqrstu] is mutable, non-divergent, conflict-free, verified green (jj fix + jj run), and scored ready-to-land by Jev (score=2.84, blastRadius=single-change).',
         fix: 'jj git push -c kmpqrstu',
       },
     };
@@ -1186,6 +1353,7 @@ jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
     function showGuard(key) {
       const g = GUARD_CASES[key];
       guardOutput.className = 'callout ' + g.cls;
+      guardOutput.setAttribute('aria-live', 'polite');
       guardOutput.innerHTML = `<div class="callout-title">${g.status} · ${g.rule}</div><p>${g.msg}</p><p><strong>Command:</strong> <code>${g.fix}</code></p>`;
       document.querySelectorAll('#guardBtns .btn').forEach((b) => b.classList.toggle('active', b.dataset.guard === key));
     }
@@ -1282,13 +1450,16 @@ jj rebase -s 'all:roots(trunk()..@)' -o trunk()</code></pre>
       { id: 'guard-01', suite: 'Guardrails', title: 'Block pushing local octopus megamerge', sig: 'MegamergeFence + JevScratchpadGate', assert: 'pushedMegamergeCount === 0' },
       { id: 'guard-02', suite: 'Guardrails', title: 'Block rewriting immutable() trunk commit', sig: 'ImmutableBedrockGuard pre-flight block', assert: 'immutableShasUnchanged === true' },
       { id: 'guard-03', suite: 'Guardrails', title: 'Block native git checkout on conflicted commit', sig: 'ColocatedGitGuard single-writer fence', assert: 'conflictFilesMaterialized === false' },
-      { id: 'guard-04', suite: 'Guardrails', title: 'Halt stacking on divergent() while allowing recovery', sig: 'DivergenceGuard permits jj converge / abandon', assert: 'finalDivergentCount === 0' },
+      { id: 'guard-04', suite: 'Guardrails', title: 'Halt stacking on divergent() while allowing recovery', sig: 'DivergenceGuard blocks jj new; permits jj converge / abandon', assert: 'finalDivergentCount === 0' },
+      { id: 'guard-05', suite: 'Guardrails', title: 'Never force-rewrite immutable()', sig: '--ignore-immutable refused; squash --into bedrock blocked', assert: 'immutableShasUnchanged === true' },
+      { id: 'pre-01', suite: 'Guardrails', title: 'Pre-flight trunk() and immutable_heads() before mutating', sig: 'PreflightGuard + ::trunk() bedrock', assert: 'trunkHistoryUnchanged === true' },
       { id: 'sdlc-01', suite: 'SDLC', title: 'Tidy First?: slip structural refactor below behavioral', sig: 'Jev choice(intent) + jj rebase -r ... -B ...', assert: 'structuralBelowBehavioral === true' },
-      { id: 'sdlc-02', suite: 'SDLC', title: 'TDD Red-Test verification without WIP commits', sig: 'jj split --parallel -> test -> jj squash', assert: 'finalMutableCount === 1' },
+      { id: 'sdlc-02', suite: 'SDLC', title: 'TDD Red-Test verification without WIP commits', sig: 'jj split --parallel -> jj run (red) -> jj squash --into <change>', assert: 'finalMutableCount === 1' },
       { id: 'sdlc-03', suite: 'SDLC', title: 'Branch by Abstraction 5-step subsystem swap', sig: 'Dry-run preview of 5 buildable revisions', assert: 'allCommitsBuild === true' },
-      { id: 'sdlc-04', suite: 'SDLC', title: 'Route fixups atop megamerge via jj absorb + Jev router', sig: 'jj absorb + Jev routeHunk choice()', assert: 'megamergeUnpolluted === true' },
+      { id: 'sdlc-04', suite: 'SDLC', title: 'Route fixups in a megamerge via jj absorb + Jev router', sig: 'MEGAMERGE_NOT_EMPTY -> jj absorb --from; Jev routeHunk choice()', assert: 'megamergeUnpolluted === true' },
       { id: 'time-01', suite: 'DualTimeAxis', title: 'Surgical evolog restore preserving sibling arm', sig: 'Jev recommendRecovery -> jj restore --from', assert: 'changeBPreserved === true' },
-      { id: 'conv-01', suite: 'Convergence', title: 'Post-merge convergence onto trunk()', sig: 'jj git fetch + jj rebase -s roots -o trunk()', assert: 'arm2RebasedOnTrunk === true' },
+      { id: 'conv-01', suite: 'Convergence', title: 'Post-merge convergence onto trunk()', sig: "jj git fetch + jj rebase -s 'roots(trunk()..@)' -o trunk()", assert: 'arm2RebasedOnTrunk === true' },
+      { id: 'pub-01', suite: 'Publishing', title: 'Verify the stack, publish green bottom layers', sig: 'jj fix + jj run -> PublishingGate -> planLayeredPublish', assert: 'publishedRedLayers === 0' },
     ];
     const evalBody = document.getElementById('evalBody');
     function renderEvals(suite) {

@@ -7,24 +7,33 @@
 // the repository, its Git refs, and the working copy stay untouched. The
 // preview is read back with `--at-op`. "Apply" is `jj op integrate <tip>`
 // followed by `jj workspace update-stale`; "discard" just forgets the tip.
+//
+// Every step first passes the jjr guardrails, with the revisions it rewrites
+// resolved by jj itself and a pre-flight check of trunk() and
+// immutable_heads(). `jj fix` and `jj run --ignore-changes` verify revisions
+// for the Publishing Gate the same way, as operations that are never kept.
 
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  FORGE_ADAPTERS,
   JjrGraph,
   JjrGuardrailPipeline,
   JjrJevAssistant,
   JjrNarrator,
+  JjrRunner,
   OpenAiCompatibleTransport,
   buildDagGraphViewModel,
-  extractMutatedTargets,
+  describeMutation,
+  parseJjArgs,
   renderDagTui,
   suggestPatternsForGraph,
   toGuiDagRows,
+  verificationState,
 } from './jjr/index.mjs';
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -32,21 +41,36 @@ const PUBLIC = path.join(ROOT_DIR, 'public');
 const DOCS = path.join(ROOT_DIR, 'docs');
 const MAX_NODES = 400;
 const MAX_ELIDED_LOOKUPS = 24;
+const ROOT_COMMIT = '0'.repeat(40);
+const PREFLIGHT_TTL_MS = 5000;
+// Hook names git runs (githooks(5)); jj runs none of them.
+const GIT_HOOKS = new Set([
+  'applypatch-msg', 'pre-applypatch', 'post-applypatch', 'pre-commit', 'pre-merge-commit',
+  'prepare-commit-msg', 'commit-msg', 'post-commit', 'pre-rebase', 'post-checkout', 'post-merge',
+  'pre-push', 'pre-receive', 'update', 'proc-receive', 'post-receive', 'post-update',
+  'reference-transaction', 'push-to-checkout', 'pre-auto-gc', 'post-rewrite', 'sendemail-validate',
+  'fsmonitor-watchman', 'post-index-change',
+]);
+const MAX_VERIFY = 30;
+const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
 
 // Commands a dry run may contain: ones that only rewrite the repository.
 // Anything with effects outside it (git push/fetch), anything interactive,
-// and anything that manages operations or workspaces is left out.
+// and anything that manages operations or workspaces is left out. `split`
+// qualifies only with paths, `converge` only with --no-interactive.
 export const ALLOWED = new Set([
-  'abandon', 'absorb', 'bookmark', 'describe', 'duplicate', 'edit', 'metaedit',
-  'new', 'next', 'parallelize', 'prev', 'rebase', 'restore', 'revert',
-  'simplify-parents', 'squash', 'tag',
+  'abandon', 'absorb', 'bookmark', 'converge', 'describe', 'duplicate', 'edit', 'fix',
+  'metaedit', 'new', 'next', 'parallelize', 'prev', 'rebase', 'restore', 'revert',
+  'simplify-parents', 'split', 'squash', 'tag',
 ]);
 // Commands that can make new changes, whose ids differ on every run.
-const CREATORS = new Set(['new', 'duplicate', 'revert', 'squash']);
+const CREATORS = new Set(['new', 'duplicate', 'revert', 'squash', 'split', 'metaedit']);
 const FORBIDDEN_FLAGS = [
   '-i', '--interactive', '--tool', '--editor', '-R', '--repository',
   '--at-op', '--at-operation', '--no-integrate-operation',
   '--ignore-working-copy', '--config', '--config-file',
+  // jjr never force-rewrites immutable() history.
+  '--ignore-immutable',
 ];
 
 const TEMPLATE = [
@@ -63,8 +87,13 @@ const TEMPLATE = [
   '",\\"prefix\\":" ++ json(change_id.shortest(4).prefix())',
   '",\\"workspaces\\":" ++ json(working_copies)',
   '",\\"files\\":" ++ json(if(immutable, 0, self.diff().files().len()))',
+  '",\\"paths\\":" ++ if(immutable, "[]", json(self.diff().files().map(|e| e.path().display())))',
   '"}\\n"',
 ].join(' ++ ');
+
+// Resolves a revision for the guardrails: identity, zone, and whether it is
+// trunk() history.
+const RESOLVE_TEMPLATE = 'change_id ++ " " ++ commit_id ++ " " ++ immutable ++ " " ++ divergent ++ " " ++ self.contained_in("::trunk()") ++ "\\n"';
 
 export class JjError extends Error {
   constructor(message, status = 400) {
@@ -94,6 +123,11 @@ export function validateArgs(args) {
     const flag = a.split('=')[0];
     if (FORBIDDEN_FLAGS.includes(flag)) throw new JjError(`The flag ${flag} is not allowed in a dry run.`);
   }
+  if (args[0] === 'split' && parseJjArgs(args).positional.length === 0) {
+    throw new JjError('"jj split" needs paths to run without its interactive editor, for example: split --parallel src/impl.js');
+  }
+  // Without --no-interactive, jj converge prompts.
+  if (args[0] === 'converge' && !args.includes('--no-interactive')) return [...args, '--no-interactive'];
   return args;
 }
 
@@ -126,10 +160,13 @@ export function splitCommandLine(line) {
   return out;
 }
 
-export function createApp(repo, { pipeline, jev, narrator } = {}) {
+export function createApp(repo, { pipeline, jev, narrator, verifyCommand = null } = {}) {
   /** @type {{base: string|null, steps: {args: string[], label: string, op: string, output: string, created: string[]}[], redo: any[]}} */
   const plan = { base: null, steps: [], redo: [] };
   const cache = new Map();
+  const preflightCache = new Map();
+  /** Verification results by commit id: a result holds for that snapshot only. */
+  const verifications = new Map();
   let defaultRevset = null;
   let queue = Promise.resolve();
   const jjrPipeline = pipeline ?? new JjrGuardrailPipeline();
@@ -139,22 +176,175 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
     jev: jjrJev,
     transport: defaultTransport.isConfigured ? defaultTransport : null,
   });
+  const jjrRunner = new JjrRunner({ pipeline: jjrPipeline, jev: jjrJev, narrator: jjrNarrator });
 
   const tip = () => (plan.steps.length ? plan.steps.at(-1).op : null);
 
-  function jj(args, { atOp = null, ok = [0] } = {}) {
+  function jj(args, { atOp = null, ok = [0], timeout = 0 } = {}) {
     const full = ['--color', 'never', '--no-pager', ...(atOp ? ['--at-op', atOp] : []), ...args];
     return new Promise((resolve, reject) => {
       execFile('jj', full, {
         cwd: repo,
         maxBuffer: 64 * 1024 * 1024,
+        timeout,
         env: { ...process.env, JJ_EDITOR: 'true', EDITOR: 'true' },
       }, (err, stdout, stderr) => {
         const code = err ? (typeof err.code === 'number' ? err.code : 1) : 0;
         if (err && err.code === 'ENOENT') return reject(new JjError('jj is not on PATH.', 500));
+        if (err?.killed) return reject(new JjError(`jj ${args[0]} timed out after ${Math.round(timeout / 1000)}s.`));
         if (!ok.includes(code)) return reject(new JjError(stderr.trim() || `jj exited with ${code}`));
         resolve({ stdout, stderr, code });
       });
+    });
+  }
+
+  /** Settle a jj call into { ok, ...result } or { ok: false, error }. */
+  const settle = (p) => p.then((r) => ({ ok: true, ...r }), (err) => ({ ok: false, error: err.message }));
+
+  /**
+   * Pre-flight check: where trunk() and immutable_heads() resolve at `op`,
+   * whether anything mutable is divergent, and repository facts the
+   * guardrails need (merge.same-change, colocation, remotes, Git features jj
+   * does not support).
+   */
+  async function preflight(op) {
+    const hit = preflightCache.get(op);
+    if (hit && Date.now() - hit.at < PREFLIGHT_TTL_MS) return hit.value;
+    const row = 'change_id ++ " " ++ commit_id ++ " " ++ immutable ++ "\\n"';
+    const [trunkRes, headsRes, divRes, sameRes, forgeRes, gitRootRes, remotesRes] = await Promise.all([
+      settle(jj(['log', '--no-graph', '-n', '1', '-r', 'trunk()', '-T', row], { atOp: op })),
+      settle(jj(['log', '--no-graph', '-n', '50', '-r', 'immutable_heads()', '-T', row], { atOp: op })),
+      settle(jj(['log', '--no-graph', '-n', '50', '-r', 'divergent() & mutable()', '-T', 'change_id ++ "\\n"'], { atOp: op })),
+      settle(jj(['config', 'get', 'merge.same-change'], { ok: [0, 1] })),
+      settle(jj(['config', 'get', 'jjr.forge'], { ok: [0, 1] })),
+      settle(jj(['git', 'root'], { ok: [0, 1] })),
+      settle(jj(['git', 'remote', 'list'], { ok: [0, 1] })),
+    ]);
+    const parseRow = (line) => {
+      const [changeId, commitId, immutable] = line.split(' ');
+      return { changeId, commitId, immutable: immutable === 'true' };
+    };
+    const trunkRow = trunkRes.ok ? trunkRes.stdout.split('\n').filter(Boolean).map(parseRow)[0] : null;
+    const gitDir = gitRootRes.ok && gitRootRes.code === 0 ? gitRootRes.stdout.trim() : null;
+    const colocated = Boolean(gitDir) && path.resolve(repo, gitDir) === path.join(repo, '.git');
+    const forge = forgeRes.ok && forgeRes.code === 0 ? forgeRes.stdout.trim() : '';
+    const value = {
+      op,
+      trunk: trunkRow
+        ? { resolved: true, ...trunkRow, isRoot: trunkRow.commitId === ROOT_COMMIT }
+        : { resolved: false, error: trunkRes.error ?? 'trunk() resolves to no revision' },
+      immutableHeads: headsRes.ok
+        ? { resolved: true, heads: headsRes.stdout.split('\n').filter(Boolean).map(parseRow) }
+        : { resolved: false, error: headsRes.error },
+      divergent: divRes.ok ? [...new Set(divRes.stdout.split('\n').filter(Boolean))] : [],
+      mergeSameChange: (sameRes.ok && sameRes.code === 0 && sameRes.stdout.trim()) || 'accept',
+      forge: FORGE_ADAPTERS[forge] ? forge : 'github-bookmarks',
+      colocated,
+      remotes: remotesRes.ok && remotesRes.code === 0
+        ? remotesRes.stdout.split('\n').filter(Boolean).map((l) => l.split(/\s+/)[0])
+        : [],
+      gitCompat: await gitCompatibility(gitDir, colocated),
+      keepRefs: gitDir ? await readdir(path.join(path.resolve(repo, gitDir), 'refs', 'jj', 'keep')).then((e) => e.length, () => 0) : 0,
+    };
+    preflightCache.set(op, { at: Date.now(), value });
+    if (preflightCache.size > 32) preflightCache.delete(preflightCache.keys().next().value);
+    return value;
+  }
+
+  /** Git features in use that jj does not support. */
+  async function gitCompatibility(gitDir, colocated) {
+    const issues = [];
+    const exists = (p) => access(p).then(() => true, () => false);
+    if (await exists(path.join(repo, '.gitmodules'))) {
+      issues.push({ kind: 'submodules', message: '.gitmodules found: jj does not support Git submodules, so they are neither checked out nor updated.' });
+    }
+    const attrs = await readFile(path.join(repo, '.gitattributes'), 'utf8').catch(() => null);
+    if (attrs != null) {
+      if (/filter=lfs/.test(attrs)) {
+        issues.push({ kind: 'lfs', message: '.gitattributes routes files through Git LFS: jj does not support LFS and commits the pointer files as they are.' });
+      } else if (attrs.split('\n').some((l) => l.trim() && !l.trim().startsWith('#'))) {
+        issues.push({ kind: 'gitattributes', message: '.gitattributes has no effect under jj (no eol conversion, filters, or merge drivers).' });
+      }
+    }
+    if (colocated) {
+      const hooks = await readdir(path.join(repo, '.git', 'hooks')).catch(() => []);
+      const active = hooks.filter((h) => GIT_HOOKS.has(h));
+      if (active.length) {
+        issues.push({
+          kind: 'hooks',
+          message: `Git hooks (${active.join(', ')}) never run under jj; run their checks through jj fix or the verify command instead.`,
+          suggestedCommand: `jj config set --repo jjr.verify-command '<build and test command>'`,
+        });
+      }
+    }
+    return issues;
+  }
+
+  /** The verification records that still apply to the commits shown. */
+  function verificationsFor(nodes) {
+    const out = {};
+    for (const n of nodes) {
+      const v = verifications.get(n.id);
+      if (v) out[n.change] = v;
+    }
+    return out;
+  }
+
+  function buildGraph(nodes, pre) {
+    return JjrGraph.fromJjGraphNodes(nodes, {
+      preflight: pre,
+      mergeSameChange: pre?.mergeSameChange ?? 'accept',
+      colocated: pre?.colocated ?? true,
+      forge: pre?.forge ?? 'github-bookmarks',
+      verifications: verificationsFor(nodes),
+    });
+  }
+
+  async function graphAt(op, revset = 'all()') {
+    const [nodes, pre] = await Promise.all([view(op, revset), preflight(op)]);
+    return buildGraph(nodes, pre);
+  }
+
+  /**
+   * Resolve revsets with jj at `op`. Returns null when one does not resolve:
+   * jj reports that itself when the command runs.
+   */
+  async function resolveRevsets(revsets, op) {
+    if (!revsets.length) return [];
+    try {
+      const { stdout } = await jj(
+        ['log', '--no-graph', '-n', '500', '-r', revsets.map((r) => `(${r})`).join(' | '), '-T', RESOLVE_TEMPLATE],
+        { atOp: op },
+      );
+      return stdout.split('\n').filter(Boolean).map((line) => {
+        const [changeId, commitId, immutable, divergent, inTrunk] = line.split(' ');
+        return { changeId, commitId, immutable: immutable === 'true', divergent: divergent === 'true', inTrunk: inTrunk === 'true' };
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Run the guardrails on one dry-run step, with its revisions resolved by jj. */
+  async function guard(args, op) {
+    const m = describeMutation(args);
+    const [targets, bookmarkTargets, graph] = await Promise.all([
+      resolveRevsets(m.rewrites, op),
+      Promise.all(m.bookmarks.map((b) => resolveRevsets([b.target], op))),
+      graphAt(op),
+    ]);
+    return jjrPipeline.evaluate(graph, {
+      type: 'mutate',
+      args,
+      command: displayCommand(args),
+      targetChanges: targets ? targets.map((t) => (t.divergent ? t.commitId : t.changeId)) : m.rewrites,
+      resolvedTargets: targets ?? [],
+      ignoreImmutable: m.ignoreImmutable,
+      recovery: m.recovery,
+      bookmarks: m.bookmarks.map((b, i) => ({
+        names: b.names,
+        targetChanges: (bookmarkTargets[i] ?? []).map((t) => t.changeId),
+      })),
     });
   }
 
@@ -195,6 +385,7 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
         hidden: r.hidden,
         workspaces: r.workspaces,
         files: r.files,
+        paths: r.paths,
       };
     });
   }
@@ -307,7 +498,8 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
     }
     const dry = plan.steps.length > 0;
     // `at` looks back at an earlier operation; it never shows the plan.
-    const nodes = await view(at ?? (dry ? tip() : head), revset);
+    const viewOp = at ?? (dry ? tip() : head);
+    const [nodes, pre] = await Promise.all([view(viewOp, revset), preflight(viewOp)]);
     let baseline = null;
     if (dry && !at) {
       baseline = {};
@@ -318,7 +510,7 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
     // `jj new` names only parents, so everything it lists is a destination.
     const named = (args) => (args[0] === 'new' ? []
       : args.filter((a, i) => /^[k-z]{32}$/.test(a) && !DEST.includes(args[i - 1])));
-    const jjrGraph = JjrGraph.fromJjGraphNodes(nodes);
+    const jjrGraph = buildGraph(nodes, pre);
     return {
       repo,
       revset,
@@ -332,6 +524,8 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
         summary: jjrGraph.summary(),
         diagnostics: jjrGraph.diagnose(),
         jevMode: jjrJev.mode,
+        preflight: pre,
+        verification: Object.fromEntries(nodes.filter((n) => !n.immutable).map((n) => [n.change, verificationState(verifications.get(n.id))])),
       },
       // Changes a step names or creates; the rest of what moved only followed.
       rewound: plan.steps.some((s) => s.args[0].startsWith('op')),
@@ -413,8 +607,7 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
     }
     const revset = revsetArg?.trim() || defaultRevset;
     const op = checkOp(atArg) ?? tip() ?? (await snapshot());
-    const nodes = await view(op, revset);
-    return { graph: JjrGraph.fromJjGraphNodes(nodes), op, revset };
+    return { graph: await graphAt(op, revset), op, revset };
   }
 
   async function readRevisionContext(rev, op) {
@@ -429,31 +622,144 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
     };
   }
 
-  async function dryRun(args) {
-    validateArgs(args);
+  async function dryRun(rawArgs) {
+    const args = validateArgs(rawArgs);
     const head = await snapshot();
     await rebasePlan(head);
-    const activeOp = tip() ?? head;
-    const targetChanges = extractMutatedTargets(args);
-    if (targetChanges.length > 0) {
-      const nodes = await view(activeOp, 'all()');
-      const graph = JjrGraph.fromJjGraphNodes(nodes);
-      const guard = jjrPipeline.evaluate(graph, {
-        type: 'mutate',
-        targetChanges,
-        command: displayCommand(args),
-      });
-      if (!guard.allowed) {
-        const first = guard.blockers[0];
-        throw new JjError(`${first.ruleName}: ${first.message}${first.remediation ? ` ${first.remediation}` : ''}`);
-      }
+    // Every step passes the guardrails, including ones that name no revision
+    // (`jj new` still stacks work, which divergence must halt).
+    const verdict = await guard(args, tip() ?? head);
+    if (!verdict.allowed) {
+      const first = verdict.blockers[0];
+      throw new JjError(`${first.ruleName}: ${first.message}${first.remediation ? ` ${first.remediation}` : ''}`);
     }
+    const warnings = verdict.warnings.map((w) => ({ rule: w.ruleName, message: w.message, remediation: w.remediation ?? null }));
     if (!plan.steps.length) plan.base = head;
     const r = await exec(args, tip() ?? plan.base);
-    if (!r.op) return { changed: false, output: r.output };
+    if (!r.op) return { changed: false, output: r.output, warnings };
     plan.steps.push(r);
     plan.redo = [];
-    return { changed: true, output: r.output };
+    return { changed: true, output: r.output, warnings };
+  }
+
+  /** The configured build-and-test command: createApp option, then jj config `jjr.verify-command`. */
+  async function verifyCommandFor() {
+    if (verifyCommand) return verifyCommand;
+    const { stdout, code } = await jj(['config', 'get', 'jjr.verify-command'], { ok: [0, 1] });
+    return code === 0 && stdout.trim() ? stdout.trim() : null;
+  }
+
+  const tail = (text, n = 1500) => (text.length > n ? `…${text.slice(-n)}` : text).trim();
+
+  /**
+   * Verify the mutable revisions of `range` as they stand in the dry run (or
+   * the repository): (c) formatting with a `jj fix` that is never integrated,
+   * attributed per revision with `jj interdiff`, and (d) the verify command
+   * in each revision with `jj run --ignore-changes`. Results are kept by
+   * commit id and feed the Publishing Gate.
+   */
+  async function verify(rangeArg) {
+    const head = await snapshot();
+    try {
+      await rebasePlan(head);
+    } catch {
+      // A stale plan is verified as it stands.
+    }
+    const op = tip() ?? head;
+    const range = rangeArg?.trim() || 'trunk()..@';
+    const revs = `(${range}) & mutable()`;
+    const command = await verifyCommandFor();
+    const listed = await jj(
+      ['log', '--no-graph', '-r', revs, '-T', 'change_id ++ " " ++ commit_id ++ " " ++ divergent ++ " " ++ json(description.first_line()) ++ "\\n"'],
+      { atOp: op },
+    );
+    const all = listed.stdout.split('\n').filter(Boolean).map((line) => {
+      const [changeId, commitId, divergent, ...title] = line.split(' ');
+      return { changeId, commitId, divergent: divergent === 'true', title: JSON.parse(title.join(' ')) || '(no description)' };
+    }).reverse(); // bottom-up, the way a stack lands
+    const targets = all.slice(0, MAX_VERIFY);
+
+    const tools = await jj(['config', 'list', 'fix.tools'], { ok: [0, 1] }).catch(() => ({ stdout: '' }));
+    const formatter = { configured: Boolean(tools.stdout.trim()), fixed: 0, checked: 0, error: null };
+    const formatting = new Map();
+    if (targets.length && !formatter.configured) {
+      // Nothing to format with: jj fix errors out, and every revision is as formatted as it gets.
+      for (const t of targets) formatting.set(t.commitId, { formatted: true, files: [] });
+    } else if (targets.length) {
+      try {
+        const res = await jj(['--no-integrate-operation', 'fix', '-s', `roots(${revs})`], { atOp: op });
+        const m = /Fixed (\d+) commits? of (\d+) checked/.exec(res.stderr);
+        formatter.fixed = m ? Number(m[1]) : 0;
+        formatter.checked = m ? Number(m[2]) : 0;
+        const fixOp = /--no-integrate-operation was requested: ([0-9a-f]+)/.exec(res.stderr)?.[1] ?? null;
+        for (const t of targets) {
+          if (!fixOp || formatter.fixed === 0) formatting.set(t.commitId, { formatted: true, files: [] });
+          else if (t.divergent) formatting.set(t.commitId, { formatted: null, files: [] });
+          else {
+            const d = await jj(['interdiff', '--from', t.commitId, '--to', t.changeId, '--name-only'], { atOp: fixOp });
+            const files = d.stdout.split('\n').filter(Boolean);
+            formatting.set(t.commitId, { formatted: files.length === 0, files });
+          }
+        }
+      } catch (err) {
+        formatter.error = err.message;
+      }
+    }
+
+    const results = [];
+    for (const t of targets) {
+      const fmt = formatting.get(t.commitId) ?? { formatted: null, files: [] };
+      let passed = null;
+      let output = '';
+      if (command) {
+        try {
+          // --passthrough hands the command's own output to us, not just jj's verdict.
+          const r = await jj(['run', '--ignore-changes', '--passthrough', '--root', '-r', t.commitId, '--', 'sh', '-c', command], {
+            atOp: op,
+            ok: [0, 1],
+            timeout: VERIFY_TIMEOUT_MS,
+          });
+          passed = r.code === 0;
+          output = tail(r.stdout + r.stderr);
+        } catch (err) {
+          passed = false;
+          output = tail(err.message);
+        }
+      }
+      const record = {
+        formatted: fmt.formatted,
+        builds: passed,
+        testsPass: passed,
+        verified: command != null && fmt.formatted != null,
+        checkedAtCommit: t.commitId,
+        command,
+        unformattedFiles: fmt.files,
+        checkedAt: new Date().toISOString(),
+      };
+      verifications.set(t.commitId, record);
+      results.push({
+        changeId: t.changeId,
+        commitId: t.commitId,
+        title: t.title,
+        state: verificationState(record),
+        formatted: fmt.formatted,
+        testsPass: passed,
+        unformattedFiles: fmt.files,
+        output,
+      });
+    }
+    while (verifications.size > 500) verifications.delete(verifications.keys().next().value);
+    const count = (s) => results.filter((r) => r.state === s).length;
+    return {
+      op,
+      range,
+      command,
+      formatter,
+      results,
+      skipped: all.length - targets.length,
+      summary: { green: count('green'), red: count('red'), unknown: count('unknown') },
+      hint: command ? null : "No verify command is set, so build and test results stay unknown. Set one with: jj config set --repo jjr.verify-command 'npm test'",
+    };
   }
 
   function undo() {
@@ -535,7 +841,12 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
         patterns: suggestPatternsForGraph(graph),
         feedback: await jjrNarrator.explainGraphFeedback(graph),
         jevMode: jjrJev.mode,
+        preflight: graph.preflight,
       };
+    }
+    if (method === 'GET' && route === '/api/jjr/preflight') {
+      const { graph } = await currentJjrGraph(revset, query.get('at'));
+      return { preflight: graph.preflight, diagnostics: graph.preflightDiagnostics() };
     }
     if (method === 'GET' && route === '/api/jjr/ui') {
       const { graph } = await currentJjrGraph(revset, query.get('at'));
@@ -619,6 +930,20 @@ export function createApp(repo, { pipeline, jev, narrator } = {}) {
           },
         });
       }
+      case '/api/jjr/verify': {
+        const verification = await verify(body.range);
+        return { ...verification, state: await state(revset) };
+      }
+      case '/api/jjr/publish-plan': {
+        const { graph } = await currentJjrGraph('all()', body.at);
+        const rev = body.rev ?? graph.workingCopy()?.changeId;
+        if (!rev) throw new JjError('Expected a revision changeId.');
+        try {
+          return jjrRunner.planLayeredPublish(graph, rev, { forge: body.forge });
+        } catch (err) {
+          throw new JjError(err.message);
+        }
+      }
       case '/api/jjr/suggest-name': {
         const { graph, op } = await currentJjrGraph(revset ?? 'all()', body.at);
         const rev = body.rev ?? graph.workingCopy()?.changeId;
@@ -690,11 +1015,12 @@ export function createServer(repo, { token = null, ...jjrOpts } = {}) {
 }
 
 function parseCli(argv) {
-  const opts = { repo: process.cwd(), port: 7777, host: '127.0.0.1' };
+  const opts = { repo: process.cwd(), port: 7777, host: '127.0.0.1', verifyCommand: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--port' || a === '-p') opts.port = Number(argv[++i]);
     else if (a === '--host') opts.host = argv[++i];
+    else if (a === '--verify-command') opts.verifyCommand = argv[++i];
     else if (a === '--help' || a === '-h') opts.help = true;
     else opts.repo = path.resolve(a);
   }
@@ -704,9 +1030,11 @@ function parseCli(argv) {
 async function main() {
   const opts = parseCli(process.argv.slice(2));
   if (opts.help) {
-    console.log('Usage: jj-graph [REPO] [--port 7777] [--host 127.0.0.1]\n\n' +
+    console.log('Usage: jj-graph [REPO] [--port 7777] [--host 127.0.0.1] [--verify-command CMD]\n\n' +
       'With a host other than loopback (for a phone on your network), the URL\n' +
-      'carries a token and the API refuses requests without it.');
+      'carries a token and the API refuses requests without it.\n\n' +
+      '--verify-command is the build-and-test command run in each revision by\n' +
+      '"Verify stack" (default: jj config jjr.verify-command).');
     return;
   }
   const root = await new Promise((resolve) => {
@@ -720,7 +1048,7 @@ async function main() {
   });
   const loopback = ['127.0.0.1', 'localhost', '::1'].includes(opts.host);
   const token = loopback ? null : randomBytes(16).toString('hex');
-  createServer(root, { token }).listen(opts.port, opts.host, () => {
+  createServer(root, { token, verifyCommand: opts.verifyCommand }).listen(opts.port, opts.host, () => {
     const shown = opts.host === '0.0.0.0' || opts.host === '::' ? '<this-machine>' : opts.host;
     console.log(`jj-graph serving ${root}`);
     console.log(`  http://${shown}:${opts.port}/${token ? `#token=${token}` : ''}`);

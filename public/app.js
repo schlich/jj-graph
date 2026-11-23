@@ -115,7 +115,9 @@ async function post(path, body = {}) {
 async function dry(args, { focus = null } = {}) {
   const data = await post('/api/dry', Array.isArray(args) ? { args } : { line: args });
   if (!data) return;
+  const warnings = data.result.warnings ?? [];
   if (!data.result.changed) toast(data.result.output);
+  else if (warnings.length) toast(`${warnings[0].rule}: ${warnings[0].message}`, { ms: 7000 });
   else announce(`Previewed ${displayCommand(Array.isArray(args) ? args : [args])}`);
   if (focus) {
     S.selected = focus;
@@ -232,9 +234,11 @@ function render() {
   $('#revsetText').textContent = S.revset || st.defaultRevset;
   const jjrBtn = $('#jjrBtn');
   if (jjrBtn && st.jjr?.summary) {
-    const count = st.jjr.summary.diagnosticsCount;
+    // Advice (info) stays in the sheet; the button counts what needs attention.
+    const count = st.jjr.summary.errors + st.jjr.summary.warnings;
     jjrBtn.textContent = count > 0 ? `jjr · ${count}` : 'jjr';
     jjrBtn.dataset.status = st.jjr.summary.status;
+    jjrBtn.title = `jjr: ${st.jjr.summary.shape} graph, ${st.jjr.summary.status}`;
   }
   renderTimeline();
   renderPlanbar();
@@ -562,10 +566,22 @@ async function showEvolution(n) {
   openSheet(`Evolution of ${id}`, [note, list]);
   try {
     const { versions } = await api(`/api/evolog?rev=${n.id}${S.at ? `&at=${S.at}` : ''}`);
+    // The evolution axis: restore one change to an earlier version without
+    // rewinding anything else (unlike the operation log's restore).
+    const restorable = !n.immutable && S.mode !== 'HISTORY' && !S.at;
     note.firstElementChild.innerHTML = `One change, ${versions.length} version${versions.length === 1 ? '' : 's'}. `
-      + `Its id <b>${esc(id)}</b> never changed; jj rewrote the commit underneath each time and kept every one.`;
-    versions.forEach((v, i) => list.append(h(`<li${i ? ' class="old"' : ''}><code>${esc(v.commit.slice(0, 8))} · ${ago(v.time)}${i ? '' : ' · current'}</code>`
-      + `<code>${esc(v.operation ?? 'made outside jj')}</code></li>`)));
+      + `Its id <b>${esc(id)}</b> never changed; jj rewrote the commit underneath each time and kept every one.`
+      + (restorable && versions.length > 1 ? ' <b>Restore</b> dry-runs <code>jj restore --from</code> that version into this change only; its parents and every other change stay as they are.' : '');
+    versions.forEach((v, i) => {
+      const li = h(`<li${i ? ' class="old"' : ''}><code>${esc(v.commit.slice(0, 8))} · ${ago(v.time)}${i ? '' : ' · current'}</code>`
+        + `<code>${esc(v.operation ?? 'made outside jj')}</code></li>`);
+      if (i && restorable) {
+        const b = h('<button type="button" class="ghost" style="margin-top:6px">Restore this version</button>');
+        b.onclick = () => { closeSheet(); dry(['restore', '--from', v.commit, '--to', rev(n)], { focus: n.change }); };
+        li.append(b);
+      }
+      list.append(li);
+    });
   } catch (err) {
     note.firstElementChild.textContent = err.message;
   }
@@ -1040,13 +1056,18 @@ async function jjrSheet() {
     ]);
 
     const body = h('<div class="form"></div>');
-    body.append(h(`<div class="note"><b>${esc(diag.summary.status.toUpperCase())}</b> · ${diag.summary.mutableCount} mutable · ${diag.summary.mutableRootsCount} root(s) · Jev: <code>${esc(diag.jevMode)}</code> · <a href="/docs" target="_blank">Read jjr Docs ↗</a></div>`));
+    const sum = diag.summary;
+    body.append(h(`<div class="note"><b>${esc(sum.status.toUpperCase())}</b> · ${sum.mutableCount} mutable · ${sum.mutableRootsCount} root(s) · ${sum.verifiedGreenCount ?? 0} verified green · Jev: <code>${esc(diag.jevMode)}</code> · <a href="/docs" target="_blank">Read jjr Docs ↗</a></div>`));
+    if (sum.canonicalShape) {
+      body.append(h(`<div class="note"><b>Shape: ${esc(sum.shape)}</b> · ${esc(sum.canonicalShape.dag)}<br>Publishing: ${esc(sum.canonicalShape.publishing)}</div>`));
+    }
+    body.append(preflightNote(diag.preflight));
     body.append(h(`<div class="note">${esc(diag.feedback.summary)}</div>`));
 
     if (diag.diagnostics.length) {
       const list = h('<ol class="steps"></ol>');
       for (const d of diag.diagnostics) {
-        const li = h(`<li><div><b>${esc(d.code)}</b> (${esc(d.severity)})</div><div class="s">${esc(d.message)}</div>${d.suggestedCommand ? `<code>${esc(d.suggestedCommand)}</code>` : ''}</li>`);
+        const li = h(`<li><div><b>${esc(d.code)}</b> (<span class="sev-${esc(d.severity)}">${esc(d.severity)}</span>)</div><div class="s">${esc(d.message)}</div>${d.suggestedCommand ? `<code>${esc(d.suggestedCommand)}</code>` : ''}</li>`);
         if (d.suggestedArgs) {
           const btn = h('<button type="button" class="primary" style="margin-top:6px">Dry-run fix</button>');
           btn.onclick = () => { closeSheet(); dry(d.suggestedArgs); };
@@ -1057,13 +1078,29 @@ async function jjrSheet() {
       body.append(list);
     }
 
+    // Publishing Gate inputs: verify the stack, then plan publishing layer by layer.
+    const verifyBox = h('<div class="note"><b>Stack verification</b><br>Formats every mutable revision under <code>@</code> with a <code>jj fix</code> that is never kept, and runs the verify command in each with <code>jj run --ignore-changes</code>.</div>');
+    const verifyBtn = h('<button type="button" class="ghost" style="margin-top:6px">Verify stack</button>');
+    verifyBtn.onclick = () => verifyStack(verifyBox, verifyBtn);
+    verifyBox.append(verifyBtn);
+    body.append(verifyBox);
+    if (target && !target.immutable) {
+      const planBox = h(`<div class="note"><b>Publish plan (${esc(short(target))})</b><br>Which layers below this change can be published now, and which stay local.</div>`);
+      const planBtn = h('<button type="button" class="ghost" style="margin-top:6px">Plan publishing</button>');
+      planBtn.onclick = () => publishPlan(planBox, planBtn, target);
+      planBox.append(planBtn);
+      body.append(planBox);
+    }
+
     if (triage && target) {
       const a = triage.answers;
       body.append(h(`<div class="note"><b>Jev Triage (${esc(short(target))})</b><br>`
         + `Intent: <code>${esc(a.intent.choice)}</code> (conf ${a.intent.confidence.toFixed(2)}) · `
         + `Entangled: <code>p=${a.entangled.noul.toFixed(2)}</code> · `
         + `Readiness: <code>${esc(a.publishReadiness.legend)}</code> (${a.publishReadiness.score.toFixed(2)}) · `
-        + `Debug/Secrets: <code>p=${a.hasDebugOrSecrets.noul.toFixed(2)}</code></div>`));
+        + `Debug/Secrets: <code>p=${a.hasDebugOrSecrets.noul.toFixed(2)}</code>`
+        + (a.apiWithoutConsumer ? ` · API without caller: <code>p=${a.apiWithoutConsumer.noul.toFixed(2)}</code>` : '')
+        + '</div>'));
     }
 
     if (naming && target && !target.immutable) {
@@ -1077,6 +1114,63 @@ async function jjrSheet() {
     $('#sheetBody').replaceChildren(body);
   } catch (err) {
     note.firstElementChild.textContent = err.message;
+  }
+}
+
+/** Where trunk() and the immutable boundary resolve: checked before any rewrite. */
+function preflightNote(p) {
+  if (!p) return h('<div class="note"><b>Pre-flight</b> not run.</div>');
+  const trunk = !p.trunk?.resolved
+    ? `<span class="warn">unresolved</span> (${esc(p.trunk?.error ?? '')})`
+    : p.trunk.isRoot ? 'root()' : `<code>${esc(p.trunk.changeId.slice(0, 8))}</code>${p.trunk.immutable ? '' : ' <span class="warn">not immutable</span>'}`;
+  const heads = p.immutableHeads?.resolved ? `${p.immutableHeads.heads.length} immutable head(s)` : '<span class="warn">immutable_heads() unresolved</span>';
+  return h(`<div class="note"><b>Pre-flight</b> · trunk() ${trunk} · ${heads} · ${p.colocated ? 'colocated' : 'not colocated'}`
+    + ` · merge.same-change <code>${esc(p.mergeSameChange ?? 'accept')}</code> · forge <code>${esc(p.forge ?? 'github-bookmarks')}</code></div>`);
+}
+
+async function verifyStack(box, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Verifying…';
+  try {
+    const data = await api('/api/jjr/verify', { range: 'trunk()..@', revset: S.revset });
+    if (data.state) setState(data.state);
+    const list = h('<ol class="steps"></ol>');
+    for (const r of data.results) {
+      const said = r.output.split('\n').filter((l) => l.trim() && !/^(Error: the command|Hint: Failed revision)/.test(l));
+      const detail = r.state === 'red'
+        ? (r.formatted === false ? `jj fix would change ${r.unformattedFiles.join(', ')}` : said.at(-1) ?? 'the verify command failed')
+        : r.state === 'unknown' ? 'not checked' : 'formatted, builds, tests pass';
+      list.append(h(`<li><div><span class="state ${esc(r.state)}">${esc(r.state.toUpperCase())}</span> <code style="display:inline">${esc(r.changeId.slice(0, 8))}</code> ${esc(r.title)}</div><div class="s">${esc(detail)}</div></li>`));
+    }
+    const head = `${data.summary.green} green · ${data.summary.red} red · ${data.summary.unknown} unknown`
+      + (data.formatter.configured ? '' : ' · no fix tools configured')
+      + (data.skipped ? ` · ${data.skipped} more not verified` : '');
+    box.replaceChildren(h(`<div><b>Stack verification</b> · ${esc(head)}${data.hint ? `<br>${esc(data.hint)}` : ''}</div>`), list);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Verify stack';
+    toast(err.message, { error: true });
+  }
+}
+
+async function publishPlan(box, btn, target) {
+  btn.disabled = true;
+  try {
+    const plan = await api('/api/jjr/publish-plan', { rev: target.change, revset: S.revset });
+    const list = h('<ol class="steps"></ol>');
+    for (const l of plan.layers) {
+      list.append(h(`<li><div><span class="state ${l.publishable ? 'green' : 'red'}">${l.publishable ? 'PUBLISH' : 'KEEP LOCAL'}</span> <code style="display:inline">${esc(l.changeId.slice(0, 8))}</code> ${esc(l.title)}</div>`
+        + (l.publishable ? `<code>${esc(l.command)}</code>` : `<div class="s">${esc(l.reasons[0] ?? '')}</div>`) + '</li>'));
+    }
+    box.replaceChildren(
+      h(`<div><b>Publish plan</b> · ${esc(plan.adapter.name)} · ${plan.publish.length} now, ${plan.keepLocal.length} local`
+        + (plan.commands.length ? `<code>${esc(plan.commands.join('\n'))}</code>` : '')
+        + (plan.adapter.caveats.length ? `<div class="s">${esc(plan.adapter.caveats[0])}</div>` : '') + '</div>'),
+      list,
+    );
+  } catch (err) {
+    btn.disabled = false;
+    toast(err.message, { error: true });
   }
 }
 
