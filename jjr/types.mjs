@@ -135,15 +135,91 @@ export const CHANGE_INTENT_KINDS = Object.freeze([
 
 /**
  * Default repository configuration for jjr.
+ *
+ * `immutableHeadsRevset` mirrors jj's `builtin_immutable_heads()`.
+ * `maxStackDepth` is how long a linear chain of mutable changes may grow
+ * before jjr suggests checking its edges with the Two-Part Dependency Test.
  */
 export const DEFAULT_REPO_CONFIG = Object.freeze({
   trunkRevset: 'trunk()',
-  immutableHeadsRevset: 'trunk() | tags() | untracked_remote_bookmarks()',
+  immutableHeadsRevset: 'trunk() | tags() | untracked_remote_bookmarks() | untracked_remote_tags()',
   colocated: true,
   mergeSameChange: 'keep',
   megamergePrefix: 'local:',
   forge: 'github-bookmarks',
+  maxStackDepth: 6,
 });
+
+/**
+ * The canonical DAG shapes of the reference, keyed by the shape
+ * `JjrGraph.classifyShape()` reports for the mutable zone.
+ */
+export const CANONICAL_SHAPES = Object.freeze({
+  resting: Object.freeze({
+    scenario: 'All work landed',
+    dag: 'A single empty @ directly atop trunk()',
+    primitives: ['jj git fetch', "jj rebase -s 'roots(trunk()..@)' -o trunk()"],
+    publishing: 'Nothing to publish.',
+  }),
+  single: Object.freeze({
+    scenario: 'Isolated fix or cohesive feature',
+    dag: 'Single change rooted at trunk()',
+    primitives: ['jj new trunk()'],
+    publishing: 'Attach one bookmark or run `jj git push -c @-` when ready.',
+  }),
+  stack: Object.freeze({
+    scenario: 'Multi-layer feature with real dependencies',
+    dag: 'Shallow linear stack (trunk() <- A <- B <- C), ordered bottom-up by stability and merge order',
+    primitives: ['jj new', 'jj new -B / -A', 'jj rebase -r X -B Y'],
+    publishing: 'Publish bottom layer(s) once independently reviewable; keep draft top layers local.',
+  }),
+  parallel: Object.freeze({
+    scenario: 'Unrelated concurrent tasks / context switch',
+    dag: 'Parallel sibling arms off trunk()',
+    primitives: ['jj new trunk()', 'jj parallelize', 'jj split --parallel'],
+    publishing: 'Independent bookmarks / PRs that can land in any order.',
+  }),
+  megamerge: Object.freeze({
+    scenario: 'Simultaneous multi-branch development and full-app testing',
+    dag: 'Parallel arms joined by a local-only octopus megamerge + empty @',
+    primitives: ['jj new a b c -m "local: dev megamerge"', 'jj absorb', 'jj squash --into'],
+    publishing: 'Never push the megamerge; push only the underlying feature arms.',
+  }),
+  branching: Object.freeze({
+    scenario: 'Not canonical: a stack that forks',
+    dag: 'One root whose descendants fork into several heads',
+    primitives: ['jj parallelize', 'jj rebase -s X -o trunk()'],
+    publishing: 'Run the Two-Part Dependency Test on each fork; independent heads belong off trunk().',
+  }),
+});
+
+/**
+ * Whether a verification record proves a revision green (formatted, builds,
+ * tests pass), proves it red, or proves nothing yet.
+ *
+ * @param {{ formatted?: boolean | null, builds?: boolean | null, testsPass?: boolean | null, verified?: boolean } | null | undefined} v
+ * @returns {'green' | 'red' | 'unknown'}
+ */
+export function verificationState(v) {
+  if (!v) return 'unknown';
+  const checks = [v.formatted, v.builds, v.testsPass];
+  if (checks.some((c) => c === false)) return 'red';
+  if (v.verified !== false && checks.every((c) => c === true)) return 'green';
+  return 'unknown';
+}
+
+const TEST_PATH_RE = /(^|\/)(tests?|__tests__|specs?|testdata|fixtures)\/|[._-](test|spec)s?\.[^/]+$|(^|\/)test_[^/]+\.py$|_test\.(go|py|rb|exs?)$/i;
+const CODE_PATH_RE = /\.(m?[jt]sx?|cjs|cts|py|rb|go|rs|java|kts?|scala|swift|c|cc|cpp|cxx|h|hh|hpp|cs|php|exs?|erl|hs|ml|clj|lua|dart|zig|nim|vue|svelte)$/i;
+
+/** Whether a repository path holds tests or test fixtures. */
+export function isTestPath(p) {
+  return TEST_PATH_RE.test(String(p));
+}
+
+/** Whether a repository path holds program code (as opposed to docs or config). */
+export function isCodePath(p) {
+  return CODE_PATH_RE.test(String(p));
+}
 
 /**
  * Lightweight deterministic fallback for inferring a change's intent from its
@@ -174,7 +250,7 @@ export function inferIntentFallback(info) {
     return 'blueprint';
   }
   const paths = info.touchedPaths ?? [];
-  if (paths.length > 0 && paths.every((p) => /\.(test|spec)\.|__tests__|\/tests?\//i.test(p))) {
+  if (paths.length > 0 && paths.every(isTestPath)) {
     return 'test-harness';
   }
   if (/^(refactor|style|tidy|chore)(\(|:|!|\s)/i.test(desc)) {

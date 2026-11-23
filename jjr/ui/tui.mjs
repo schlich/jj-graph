@@ -112,6 +112,31 @@ export function renderTriageTui(vm) {
     `│ Entangled:  p=${vm.entangledProbability.toFixed(2)}${vm.entangledProbability >= 0.72 ? ' [split recommended]' : ''}`,
     `│ Readiness:  ${vm.publishReadiness} (score ${vm.publishScore.toFixed(2)}, conf ${vm.publishConfidence.toFixed(2)})`,
     `│ Debug/Keys: p=${vm.hasDebugOrSecretsProbability.toFixed(2)}`,
+    ...(vm.apiWithoutConsumerProbability != null
+      ? [`│ API/Caller: p=${vm.apiWithoutConsumerProbability.toFixed(2)}${vm.apiWithoutConsumerProbability >= 0.72 ? ' [pair with a consumer]' : ''}`]
+      : []),
+    '└────────────────────────────────────────────────────┘',
+  ].join('\n');
+}
+
+export function renderPreflightTui(vm) {
+  const trunk = vm.trunk ? `${vm.trunk.label}${vm.trunk.immutable || vm.trunk.isRoot ? '' : ' (NOT immutable)'}` : 'unresolved';
+  return [
+    `┌─ PRE-FLIGHT (${vm.status}) ─────────────────────────────┐`,
+    `│ trunk():           ${trunk}`,
+    `│ immutable_heads(): ${vm.immutableHeads.join(', ') || '(none)'}`,
+    `│ colocated:         ${vm.colocated == null ? 'unknown' : vm.colocated ? 'yes' : 'no'}`,
+    ...vm.issues.map((i) => `│ ${i.severity === 'error' ? '✖' : i.severity === 'warning' ? '▲' : '·'} ${i.code}: ${i.message}`),
+    '└────────────────────────────────────────────────────┘',
+  ].join('\n');
+}
+
+export function renderPublishPlanTui(vm) {
+  return [
+    `┌─ LAYERED PUBLISH PLAN (${vm.forgeName}) ─────────────┐`,
+    ...vm.rows.map((r) => `│ ${r.publishable ? '✓' : '✖'} ${r.changeId} ${r.title}${r.publishable ? '' : `\n│     ${r.reasons[0] ?? 'blocked'}`}`),
+    `│ Publish now: ${vm.publishCount} · keep local: ${vm.keepLocalCount}`,
+    ...vm.commands.map((c) => `│ $ ${c}`),
     '└────────────────────────────────────────────────────┘',
   ].join('\n');
 }

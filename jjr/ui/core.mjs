@@ -7,6 +7,8 @@
  * version-control logic.
  */
 
+import { verificationState } from '../types.mjs';
+
 export function buildDagGraphViewModel(graph, selectedChangeId = null) {
   const all = graph.all();
   const depthMap = new Map();
@@ -52,9 +54,8 @@ export function buildDagGraphViewModel(graph, selectedChangeId = null) {
         isDivergent: Boolean(c.isDivergent),
         isMegamerge,
         isEmpty: Boolean(c.currentCommit.isEmpty),
-        isVerifiedGreen: Boolean(
-          c.verification?.formatted && c.verification?.builds && c.verification?.testsPass,
-        ),
+        verification: verificationState(c.verification),
+        isVerifiedGreen: verificationState(c.verification) === 'green',
         depth: depthMap.get(c.changeId) ?? 0,
         parentIds: c.parents ?? [],
       };
@@ -118,6 +119,60 @@ export function buildTriageCard(changeId, triageResult) {
     publishScore: answers.publishReadiness.score,
     publishConfidence: answers.publishReadiness.confidence,
     hasDebugOrSecretsProbability: answers.hasDebugOrSecrets.noul,
+    apiWithoutConsumerProbability: answers.apiWithoutConsumer?.noul ?? null,
+  };
+}
+
+/**
+ * Pre-flight panel: where trunk() and the immutable boundary resolve, and
+ * which repository conditions need attention.
+ */
+export function buildPreflightPanel(preflight, diagnostics = []) {
+  if (!preflight) {
+    return { status: 'unknown', trunk: null, immutableHeads: [], colocated: null, issues: [] };
+  }
+  const trunk = preflight.trunk?.resolved
+    ? {
+        label: preflight.trunk.isRoot ? 'root()' : preflight.trunk.changeId.slice(0, 8),
+        isRoot: Boolean(preflight.trunk.isRoot),
+        immutable: Boolean(preflight.trunk.immutable),
+      }
+    : null;
+  const issues = diagnostics.filter((d) => /^(PREFLIGHT_|GIT_COMPAT|GC_RECOMMENDED)/.test(d.code));
+  const status = issues.some((d) => d.severity === 'error')
+    ? 'blocked'
+    : issues.some((d) => d.severity === 'warning')
+      ? 'attention'
+      : 'clean';
+  return {
+    status,
+    trunk,
+    immutableHeads: (preflight.immutableHeads?.heads ?? []).map((h) => h.changeId.slice(0, 8)),
+    colocated: preflight.colocated ?? null,
+    mergeSameChange: preflight.mergeSameChange ?? null,
+    issues: issues.map((d) => ({ severity: d.severity, code: d.code, message: d.message, command: d.suggestedCommand ?? null })),
+  };
+}
+
+/**
+ * Layered publish plan: which layers of a stack can be published now.
+ */
+export function buildPublishPlan(plan) {
+  return {
+    forge: plan.forge,
+    forgeName: plan.adapter?.name ?? plan.forge,
+    caveats: plan.adapter?.caveats ?? [],
+    rows: plan.layers.map((l) => ({
+      changeId: l.changeId.slice(0, 8),
+      title: l.title,
+      publishable: l.publishable,
+      reasons: l.reasons,
+      warnings: l.warnings ?? [],
+      command: l.command,
+    })),
+    commands: plan.commands,
+    publishCount: plan.publish.length,
+    keepLocalCount: plan.keepLocal.length,
   };
 }
 

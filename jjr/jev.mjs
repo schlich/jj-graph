@@ -18,7 +18,7 @@
  */
 
 import { JjrGraph } from './graph.mjs';
-import { inferIntentFallback } from './types.mjs';
+import { inferIntentFallback, isTestPath } from './types.mjs';
 
 // ---------------------------------------------------------------------------
 // Question primitive builders (1:1 wire format with @typesafe-ai/sdk)
@@ -181,11 +181,12 @@ export class JjrJevAssistant {
   }
 
   /**
-   * 1. Single-Pass Change Triage (4 parallel questions in 1 System One call):
+   * 1. Single-Pass Change Triage (5 parallel questions in 1 System One call):
    *    - `intent` (`choice`): structural / behavioral / test-harness / activation / blueprint / megamerge / working-copy
    *    - `entangled` (`noul`): mixes structural refactoring with behavioral edits?
    *    - `publishReadiness` (`score`): scratchpad -> needs-cleanup -> reviewable -> ready-to-land
    *    - `hasDebugOrSecrets` (`noul`): contains debug prints, TODO hacks, or secret-like literals?
+   *    - `apiWithoutConsumer` (`noul`): adds a public API with no caller or test exercising it?
    *
    * @param {{
    *   changeId: string,
@@ -233,6 +234,10 @@ export class JjrJevAssistant {
       hasDebugOrSecrets: noul('Does the diff contain stray debug logging, temporary hacks, or hardcoded credentials?', {
         true: 'Contains console.log/dbg!/print debugging, FIXME/HACK markers, or API keys/tokens',
         false: 'Clean production or test code without debug artifacts or secrets',
+      }),
+      apiWithoutConsumer: noul('Does this change add a new public API, interface, or abstraction that nothing in the change calls or tests?', {
+        true: 'Adds exported functions, types, or interfaces with zero callers and no test exercising them',
+        false: 'Every new API has at least one concrete caller or exercising test in the same change, or no API is added',
       }),
     };
 
@@ -509,7 +514,24 @@ export class JjrJevAssistant {
         confidence: normProbs[levelIdx],
       },
       hasDebugOrSecrets: { noul: debugP },
+      apiWithoutConsumer: { noul: this._offlineApiWithoutConsumer(diff, input.touchedPaths ?? []) },
     };
+  }
+
+  /**
+   * Pair New APIs with a Consumer: exported symbols the diff adds but never
+   * uses elsewhere in the same diff, with no test file touched.
+   */
+  _offlineApiWithoutConsumer(diff, touchedPaths) {
+    const added = [
+      ...diff.matchAll(
+        /^\+\s*(?:export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|class|const|let|interface|type|enum)\s+([A-Za-z_$][\w$]*)|pub\s+(?:async\s+)?(?:fn|struct|trait|enum)\s+([A-Za-z_]\w*)|def\s+([A-Za-z]\w*)\s*\()/gm,
+      ),
+    ].map((m) => m[1] ?? m[2] ?? m[3]);
+    if (added.length === 0) return prob(0.05);
+    const testsTouched = touchedPaths.some(isTestPath);
+    const exercised = added.some((name) => (diff.match(new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\b`, 'g')) ?? []).length >= 2);
+    return prob(exercised || testsTouched ? 0.16 : 0.82);
   }
 
   _offlineDependency(pair) {

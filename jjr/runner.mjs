@@ -3,14 +3,16 @@
  *
  * Wraps jj-graph's dry-run engine (`jj --at-op <tip> --no-integrate-operation`)
  * so every graph mutation passes through `JjrGuardrailPipeline` before
- * touching even a dry-run operation, and supports previewing entire SDLC
- * pattern steps safely before applying.
+ * touching even a dry-run operation, previews entire SDLC pattern steps
+ * safely before applying, and plans publishing layer by layer.
  */
 
+import { describeMutation } from './commands.mjs';
 import { JjrGraph } from './graph.mjs';
-import { JjrGuardrailPipeline, extractMutatedTargets } from './guardrails.mjs';
+import { JjrGuardrailPipeline } from './guardrails.mjs';
 import { JjrJevAssistant } from './jev.mjs';
 import { JjrNarrator } from './narrator.mjs';
+import { FORGE_ADAPTERS, JjrPatterns } from './patterns.mjs';
 
 export class JjrRunner {
   /**
@@ -30,15 +32,32 @@ export class JjrRunner {
 
   /**
    * Pure planning check for a mutation against an in-memory JjrGraph.
+   * Pass `args` (the jj argv) when available so the guardrails see exactly
+   * which revisions the command rewrites.
    */
-  planMutation(graph, targetChanges, command) {
+  planMutation(graph, targetChanges, command, args = null) {
+    const m = args ? describeMutation(args) : null;
     const guardResult = this.pipeline.evaluate(graph, {
       type: 'mutate',
-      targetChanges,
+      targetChanges: m ? [...new Set([...targetChanges, ...m.rewrites])] : targetChanges,
       command,
+      ...(args ? { args, ignoreImmutable: m.ignoreImmutable, recovery: m.recovery } : {}),
     });
     return {
       command,
+      guardResult,
+      blocked: !guardResult.allowed,
+    };
+  }
+
+  /**
+   * Pure planning check for creating or moving a bookmark (an export pointer).
+   */
+  planBookmark(graph, names, targetChange) {
+    const list = [].concat(names);
+    const guardResult = this.pipeline.evaluate(graph, { type: 'bookmark', bookmarks: list, targetChanges: [targetChange] });
+    return {
+      command: `jj bookmark set ${list.join(' ')} -r ${String(targetChange).slice(0, 8)}`,
       guardResult,
       blocked: !guardResult.allowed,
     };
@@ -56,6 +75,51 @@ export class JjrRunner {
       bookmark ? { type: 'push', targetChanges, bookmark } : { type: 'push', targetChanges },
     );
     return { command: cmd, guardResult, blocked: !guardResult.allowed };
+  }
+
+  /**
+   * Plan publishing a stack layer by layer: walk the mutable ancestors of
+   * `head` bottom-up and mark each layer publishable when the push guardrails
+   * pass for it (its own ancestors included). Bottom layers that pass can be
+   * published now; the rest stay local until they are ready.
+   *
+   * @param {JjrGraph} graph
+   * @param {string} head change id, commit id, or simple revset of the top of the stack
+   * @param {{ forge?: string }} [opts]
+   */
+  planLayeredPublish(graph, head, opts = {}) {
+    const top = graph.get(head) ?? graph.getByCommit(head) ?? graph.resolve(head)[0];
+    if (!top) throw new Error(`Change ${head} not found in the loaded graph.`);
+    const forge = FORGE_ADAPTERS[opts.forge] ? opts.forge : FORGE_ADAPTERS[graph.config.forge] ? graph.config.forge : 'github-bookmarks';
+    const adapter = FORGE_ADAPTERS[forge];
+    const layers = graph.mutableAncestorsOf(top.changeId).map((c) => {
+      const result = this.pipeline.evaluate(graph, { type: 'push', targetChanges: [c.changeId] });
+      return {
+        changeId: c.changeId,
+        commitId: c.currentCommit.commitId,
+        title: (c.currentCommit.description ?? '').split('\n')[0] || '(no description)',
+        publishable: result.allowed,
+        reasons: result.blockers.map((b) => `${b.ruleName}: ${b.message}`),
+        warnings: result.warnings.map((w) => `${w.ruleName}: ${w.message}`),
+        command: result.allowed ? JjrPatterns.publishCommand(forge, c.changeId) : null,
+      };
+    });
+    const publishable = layers.filter((l) => l.publishable);
+    // Stack-aware forges upload the top publishable layer and its ancestors at once.
+    const publishableIds = new Set(publishable.map((l) => l.changeId));
+    const heads = publishable.filter((l) => !graph.childrenOf(l.changeId).some((id) => publishableIds.has(id)));
+    const commands = adapter.stackAware
+      ? heads.map((l) => JjrPatterns.publishCommand(forge, l.changeId))
+      : publishable.map((l) => l.command);
+    return {
+      forge,
+      adapter: { name: adapter.name, modelAlignment: adapter.modelAlignment, caveats: adapter.caveats },
+      head: top.changeId,
+      layers,
+      publish: publishable.map((l) => l.changeId),
+      keepLocal: layers.filter((l) => !l.publishable).map((l) => l.changeId),
+      commands,
+    };
   }
 
   /**
@@ -78,7 +142,8 @@ export class JjrRunner {
    * Execute a guarded dry-run against a live `jj-graph` app instance.
    * Checks deterministic guardrails against the live `JjrGraph` first; if
    * clear, previews via `jj --at-op <tip> --no-integrate-operation` so the
-   * repository remains untouched until `apply()`.
+   * repository remains untouched until `apply()`. The server checks again
+   * with revisions resolved by jj itself.
    *
    * @param {string[]} args
    * @param {{ revset?: string, useJev?: boolean }} [opts]
@@ -89,9 +154,16 @@ export class JjrRunner {
     }
     const revset = opts.revset ?? 'all()';
     const liveState = await this.app.handle('GET', '/api/state', new URLSearchParams({ revset }), null);
-    const graph = JjrGraph.fromJjGraphNodes(liveState.nodes);
-    const targetChanges = extractMutatedTargets(args);
-    const action = { type: 'mutate', targetChanges, command: `jj ${args.join(' ')}` };
+    const graph = JjrGraph.fromJjGraphNodes(liveState.nodes, { preflight: liveState.jjr?.preflight ?? null });
+    const m = describeMutation(args);
+    const action = {
+      type: 'mutate',
+      args,
+      targetChanges: m.rewrites,
+      command: `jj ${args.join(' ')}`,
+      ignoreImmutable: m.ignoreImmutable,
+      recovery: m.recovery,
+    };
 
     const guardResult = opts.useJev
       ? await this.pipeline.evaluateWithJev(graph, action, { jev: this.jev })
@@ -120,5 +192,22 @@ export class JjrRunner {
       if (res.blocked) break;
     }
     return outcomes;
+  }
+
+  /**
+   * Verify a range of revisions on the bound `jj-graph` app: `jj fix` as a
+   * formatting check plus the configured test command per revision. Results
+   * feed the Publishing Gate.
+   *
+   * @param {{ revset?: string, range?: string }} [opts]
+   */
+  async verifyStack(opts = {}) {
+    if (!this.app) {
+      throw new Error('JjrRunner.verifyStack requires a bound jj-graph app instance (`new JjrRunner({ app })`).');
+    }
+    return this.app.handle('POST', '/api/jjr/verify', new URLSearchParams(), {
+      range: opts.range,
+      revset: opts.revset ?? 'all()',
+    });
   }
 }

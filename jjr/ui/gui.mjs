@@ -84,7 +84,30 @@ export function toGuiTriageProps(vm) {
       probability: vm.hasDebugOrSecretsProbability,
       tone: vm.hasDebugOrSecretsProbability >= 0.65 ? 'danger' : 'muted',
     },
+    apiWithoutConsumer: vm.apiWithoutConsumerProbability == null
+      ? null
+      : { probability: vm.apiWithoutConsumerProbability, tone: vm.apiWithoutConsumerProbability >= 0.72 ? 'dry' : 'muted' },
   };
+}
+
+export function toGuiPreflightProps(vm) {
+  return {
+    tone: vm.status === 'blocked' ? 'danger' : vm.status === 'attention' ? 'dry' : 'accent',
+    trunk: vm.trunk?.label ?? 'unresolved',
+    trunkProtected: Boolean(vm.trunk && (vm.trunk.immutable || vm.trunk.isRoot)),
+    immutableHeads: vm.immutableHeads,
+    colocated: vm.colocated,
+    issues: vm.issues.map((i) => ({ ...i, tone: i.severity === 'error' ? 'danger' : i.severity === 'warning' ? 'dry' : 'muted' })),
+  };
+}
+
+export function toGuiPublishPlanRows(vm) {
+  return vm.rows.map((r) => ({
+    key: r.changeId,
+    label: `${r.changeId} ${r.title}`,
+    tone: r.publishable ? 'accent' : 'danger',
+    detail: r.publishable ? r.command : r.reasons[0] ?? 'blocked',
+  }));
 }
 
 export function toGuiTimeTravelProps(vm) {

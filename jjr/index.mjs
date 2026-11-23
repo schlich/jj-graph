@@ -1,4 +1,5 @@
 export * from './types.mjs';
+export * from './commands.mjs';
 export * from './graph.mjs';
 export * from './guardrails.mjs';
 export * from './patterns.mjs';
