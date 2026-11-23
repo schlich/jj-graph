@@ -49,6 +49,11 @@ jj-graph [REPO] [--port 7777] [--host 127.0.0.1] [--verify-command CMD]
 
 The web UI and these docs are compiled into the binary.
 
+With Nix, `nix run github:schlich/jj-graph -- [REPO]` (or
+`nix run . -- [REPO]` in a checkout) builds it with a matching `jj`.
+`nix develop` opens a shell with Rust, jj, git and Node, and
+`nix flake check` runs every test, including the eval scenarios.
+
 To use it from a phone, bind an address the phone can reach, such as
 `--host 0.0.0.0`. The printed URL then carries a token, and the API refuses
 requests without it. Anyone holding that URL can rewrite the repository, so
