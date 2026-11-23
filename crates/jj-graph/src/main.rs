@@ -3,19 +3,25 @@ use std::process::ExitCode;
 
 use jj_graph::app::App;
 use jj_graph::app::AppOptions;
+use jj_graph::mcp::McpServer;
 use jj_graph::repo::RepoContext;
 
 const USAGE: &str = "Usage:
   jj-graph [REPO] [--port 7777] [--host 127.0.0.1] [--verify-command CMD]
+  jj-graph mcp [REPO] [--verify-command CMD]
 
-Serves the web UI for REPO (default: the current directory). With a host
-other than loopback (for a phone on your network), the URL carries a token
-and the API refuses requests without it.
+The first form serves the web UI for REPO (default: the current directory).
+With a host other than loopback (for a phone on your network), the URL
+carries a token and the API refuses requests without it.
+
+`jj-graph mcp` serves the same dry-run engine to an agent over the Model
+Context Protocol on stdin and stdout.
 
 --verify-command is the build-and-test command run in each revision by
 \"Verify stack\" (default: jj config jjr.verify-command).";
 
 struct Options {
+    mcp: bool,
     repo: PathBuf,
     port: u16,
     host: String,
@@ -23,8 +29,13 @@ struct Options {
 }
 
 fn parse_cli() -> Result<Option<Options>, String> {
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+    let mcp = args.peek().is_some_and(|a| a == "mcp");
+    if mcp {
+        args.next();
+    }
     let mut opts = Options {
+        mcp,
         repo: std::env::current_dir().map_err(|e| e.to_string())?,
         port: 7777,
         host: "127.0.0.1".into(),
@@ -32,13 +43,13 @@ fn parse_cli() -> Result<Option<Options>, String> {
     };
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--port" | "-p" => {
+            "--port" | "-p" if !mcp => {
                 opts.port = args
                     .next()
                     .and_then(|p| p.parse().ok())
                     .ok_or("--port needs a port number")?;
             }
-            "--host" => opts.host = args.next().ok_or("--host needs a host")?,
+            "--host" if !mcp => opts.host = args.next().ok_or("--host needs a host")?,
             "--verify-command" => {
                 opts.verify_command = Some(args.next().ok_or("--verify-command needs a command")?)
             }
@@ -72,7 +83,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mut app = App::new(
+    let app = App::new(
         &root,
         AppOptions {
             verify_command: opts.verify_command.clone(),
@@ -90,6 +101,17 @@ fn main() -> ExitCode {
             );
         }
         Some(_) => {}
+    }
+    if opts.mcp {
+        eprintln!("jj-graph mcp serving {}", root.display());
+        let mut server = McpServer::new(app, opts.verify_command);
+        return match jj_graph::mcp::serve_stdio(&mut server) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("jj-graph mcp: {err}");
+                ExitCode::FAILURE
+            }
+        };
     }
     let loopback = ["127.0.0.1", "localhost", "::1"].contains(&opts.host.as_str());
     let token = (!loopback).then(|| {
@@ -112,6 +134,7 @@ fn main() -> ExitCode {
             .map(|t| format!("#token={t}"))
             .unwrap_or_default()
     );
+    let mut app = app;
     match jj_graph::server::serve(&mut app, (opts.host.as_str(), opts.port), token.as_deref()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

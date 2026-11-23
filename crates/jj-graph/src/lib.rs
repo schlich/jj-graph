@@ -1,5 +1,5 @@
-//! jj-graph: a DAG-centred web UI for Jujutsu, with dry runs of every jj
-//! command.
+//! jj-graph: a DAG-centred web UI and MCP server for Jujutsu, with dry runs
+//! of every jj command.
 //!
 //! - [`repo`] reads repositories in-process with jj-lib, configured the way
 //!   the jj CLI configures itself.
@@ -7,10 +7,12 @@
 //!   working-copy updates and Git import/export are exactly jj's.
 //! - [`app`] is the dry-run engine and its JSON API.
 //! - [`server`] serves the web UI and the API over HTTP.
+//! - [`mcp`] serves the engine to agents over the Model Context Protocol.
 
 pub mod app;
 pub mod error;
 pub mod jj;
+pub mod mcp;
 pub mod repo;
 pub mod server;
 

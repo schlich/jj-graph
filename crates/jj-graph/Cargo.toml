@@ -1,6 +1,6 @@
 [package]
 name = "jj-graph"
-description = "A DAG-centred web UI for Jujutsu, with dry runs of every jj command"
+description = "A DAG-centred web UI and MCP server for Jujutsu, with dry runs of every jj command"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

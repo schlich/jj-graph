@@ -130,6 +130,48 @@ import/export are exactly jj's.
   shortened id may fail to replay after the repository changes. Commands
   built by dragging use full ids and do not have this problem.
 
+## Use it from an agent
+
+`jj-graph mcp` serves the same engine to an AI agent over the
+[Model Context Protocol](https://modelcontextprotocol.io), on stdin and
+stdout. The agent previews jj commands with `dry_run`, reads the graph each
+step leaves, and makes the plan real with `apply_plan`, which returns the
+operation `restore_operation` takes to undo it. The agent's plan is its own:
+a web UI open on the same repository keeps a separate one.
+
+```sh
+jj-graph mcp [REPO] [--verify-command CMD]
+```
+
+`REPO` defaults to the directory the client starts the server in. To add it
+to Claude Code for every repository:
+
+```sh
+claude mcp add --scope user jj-graph -- jj-graph mcp
+```
+
+or for one project, in its `.mcp.json`:
+
+```json
+{ "mcpServers": { "jj-graph": { "command": "jj-graph", "args": ["mcp"] } } }
+```
+
+| Tool | Does |
+| --- | --- |
+| `graph` | One line per revision (change id, commit id, title, bookmarks, state, parents), then the jjr diagnostics |
+| `dry_run` | Adds one jj command to the plan once the guardrails pass it |
+| `plan_undo`, `plan_redo`, `plan_discard` | Step through the plan, or drop it |
+| `apply_plan`, `restore_operation` | Make the plan real, and undo that |
+| `op_log`, `show`, `evolog` | The operation log, a revision's files or diff, a change's earlier versions |
+| `diagnose`, `preflight`, `guard` | The jjr reading of the graph, the pre-flight facts, and a guardrail check for pushes, Git commands, bookmarks and workspaces |
+| `verify_stack`, `publish_plan` | Run the verify command in each revision, then see which layers can be published |
+| `triage`, `assess_dependency`, `suggest_name` | Jev change triage, the stack-or-parallelize gate, and a title with a bookmark slug |
+| `recipe` | A jjr pattern's steps, each with the arguments to pass to `dry_run` |
+
+The graph shows 12-character change ids, and `dry_run` expands them to full
+ids, so the agent's plans replay cleanly after the repository changes
+underneath them.
+
 ## jjr framework
 
 `jj-graph` ships with **jjr** (the `jjr` crate in `crates/jjr`), a framework
