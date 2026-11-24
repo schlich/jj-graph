@@ -156,6 +156,9 @@ to OpenCode's front ends:
   `h`/`l` or `1`–`4` switch section, `⏎` shows details, `y` copies the
   change id, step, fix or operation, `r` re-reads, `f` goes full screen,
   `esc` goes back or closes.
+- **Desktop app**: the same views in a *jj graph* tab of the session's side
+  region (`mod+shift+j`, `/jj-graph`, or the region's **+** menu), with the
+  same keys and the same mode line.
 
 The views follow the repository live: after every jj-graph tool call, after
 any other tool (an edit, a shell), and whenever jj records an operation,
@@ -166,16 +169,20 @@ by itself in this checkout. Others reach the same state through the
 
 Elsewhere, install it globally by linking the directory into
 `~/.config/opencode/plugins/jj-graph`, or list it in `opencode.json`. The
-flake's `opencode-plugin` package is the plugin with this flake's
-`jj-graph` baked in, so it needs nothing on PATH:
+desktop app loads a plugin's desktop part only from the global
+`~/.config/opencode/opencode.json`. The flake's `opencode-plugin` package
+is the plugin with the desktop part built and this flake's `jj-graph` baked
+in, so it needs nothing on PATH:
 
 ```sh
 nix build github:schlich/jj-graph#opencode-plugin -o ~/.config/opencode/plugins/jj-graph
 ```
 
-Used from a checkout instead, the plugin runs `jj-graph` from PATH. Make
-sure that is this program (another project ships a `jj-graph` without an
-`mcp` command), or name the binary with the `command` option:
+Used from a checkout instead, build the desktop part with
+`npm ci && npm run build` in `opencode-gui/`, and note that the plugin runs
+`jj-graph` from PATH. Make sure that is this program (another project ships
+a `jj-graph` without an `mcp` command), or name the binary with the
+`command` option:
 
 ```json
 {

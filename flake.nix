@@ -54,35 +54,54 @@
         };
         default = jj-graph;
 
-        # The OpenCode plugin directory, with jj-graph's store path in place of
-        # `jj-graph` on PATH. Link it into ~/.config/opencode/plugins/jj-graph,
-        # or list its path under `plugins` in opencode.json.
-        opencode-plugin =
-          pkgs.runCommand "jj-graph-opencode-plugin-${version}"
-            {
-              # The plugin's layout.js is a symlink to public/layout.js, which
-              # a fileset cannot hold: copy the file in its place.
-              src = pkgs.lib.fileset.toSource {
-                root = ./.;
-                fileset = pkgs.lib.fileset.unions [
-                  ./public/layout.js
-                  (pkgs.lib.fileset.fileFilter (f: f.hasExt "ts" || f.hasExt "tsx") ./.opencode/plugins/jj-graph)
-                ];
-              };
-              nativeBuildInputs = [ pkgs.bun ];
-              meta.description = "OpenCode plugin for jj-graph: its tools, and the jj graph in the TUI";
-            }
-            ''
-              cp -r $src/.opencode/plugins/jj-graph plugin
-              chmod -R u+w plugin
-              cp $src/public/layout.js plugin/layout.js
-              (cd plugin && HOME=$TMPDIR bun test model.test.ts)
-              mkdir -p $out
-              cp plugin/index.ts plugin/engine.ts plugin/model.ts plugin/rpc.ts plugin/tui.tsx plugin/layout.js $out/
-              substituteInPlace $out/index.ts \
-                --replace-fail 'const DEFAULT_COMMAND = "jj-graph"' \
-                               'const DEFAULT_COMMAND = "${pkgs.lib.getExe jj-graph}"'
-            '';
+        # The OpenCode plugin directory: the server and TUI parts, and the
+        # desktop part built into gui-experimental.cjs, with jj-graph's store
+        # path in place of `jj-graph` on PATH. Link it into
+        # ~/.config/opencode/plugins/jj-graph, or list its path under
+        # `plugins` in opencode.json (the desktop app reads only the global one).
+        opencode-plugin = pkgs.buildNpmPackage {
+          pname = "jj-graph-opencode-plugin";
+          inherit version;
+          # Symlinks stay out of the source: the plugin's layout.js link is
+          # replaced by public/layout.js, and opencode-gui/plugin is made here.
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./public/layout.js
+              (pkgs.lib.fileset.fileFilter (f: f.hasExt "ts" || f.hasExt "tsx" || f.hasExt "css") ./.opencode/plugins/jj-graph)
+              ./opencode-gui/package.json
+              ./opencode-gui/package-lock.json
+              ./opencode-gui/vite.config.ts
+              ./opencode-gui/tsconfig.json
+              ./opencode-gui/env.d.ts
+            ];
+          };
+          sourceRoot = "source/opencode-gui";
+          npmDepsHash = "sha256-FKyykYS2sCd1FG//WVGQNcpBihWNISYQcBsdpWixoIQ=";
+          nativeBuildInputs = [ pkgs.bun ];
+          # Only sourceRoot is writable after unpacking, and fetchNpmDeps runs
+          # the patch hooks too, so set the plugin directory up here.
+          preBuild = ''
+            chmod -R u+w ..
+            cp ../public/layout.js ../.opencode/plugins/jj-graph/layout.js
+            ln -s ../.opencode/plugins/jj-graph plugin
+            npx tsc -p tsconfig.json
+          '';
+          postBuild = ''
+            (cd ../.opencode/plugins/jj-graph && HOME=$TMPDIR bun test model.test.ts)
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out
+            cd ../.opencode/plugins/jj-graph
+            cp index.ts engine.ts model.ts rpc.ts tui.tsx layout.js gui-experimental.cjs $out/
+            substituteInPlace $out/index.ts \
+              --replace-fail 'const DEFAULT_COMMAND = "jj-graph"' \
+                             'const DEFAULT_COMMAND = "${pkgs.lib.getExe jj-graph}"'
+            runHook postInstall
+          '';
+          meta.description = "OpenCode plugin for jj-graph: its tools, and the jj graph in the TUI and desktop app";
+        };
       });
 
       apps = forAllSystems (pkgs: {

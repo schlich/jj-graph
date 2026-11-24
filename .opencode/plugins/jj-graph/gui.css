@@ -1,0 +1,138 @@
+/* The jj graph panel, in the app's own colors where it publishes them. */
+.jjg {
+  --jjg-text: var(--v2-text-text-base, currentColor);
+  --jjg-muted: var(--v2-text-text-muted, color-mix(in srgb, currentColor 60%, transparent));
+  --jjg-bg: var(--v2-background-bg-base, transparent);
+  --jjg-raised: var(--v2-background-bg-layer-01, color-mix(in srgb, currentColor 8%, transparent));
+  --jjg-border: var(--v2-border-border-muted, color-mix(in srgb, currentColor 15%, transparent));
+  --jjg-ok: var(--icon-success-base, #3fa46a);
+  --jjg-warn: var(--icon-warning-base, #c28a1e);
+  --jjg-error: var(--icon-critical-base, #d64545);
+  --jjg-busy: var(--icon-info-base, #3d7fd6);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--jjg-text);
+  background: var(--jjg-bg);
+  font-size: 13px;
+  outline: none;
+}
+.jjg-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 10px 12px 4px;
+}
+.jjg-status {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jjg-muted {
+  color: var(--jjg-muted);
+}
+.jjg-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--jjg-border);
+}
+.jjg-tab {
+  border: 0;
+  background: none;
+  color: var(--jjg-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+.jjg-tab-on {
+  color: var(--jjg-text);
+  background: var(--jjg-raised);
+  font-weight: 600;
+}
+.jjg-list,
+.jjg-detail {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+  font-family: var(--jjg-mono, ui-monospace, monospace);
+}
+.jjg-detail {
+  padding: 8px 12px;
+}
+.jjg-detail pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  font: inherit;
+}
+.jjg-row {
+  padding: 1px 12px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.jjg-row-on {
+  background: var(--jjg-raised);
+}
+.jjg:not(:focus-within) .jjg-row-on {
+  background: color-mix(in srgb, var(--jjg-raised) 50%, transparent);
+}
+.jjg-lanes {
+  color: var(--jjg-muted);
+}
+.jjg-empty {
+  padding: 4px 12px;
+  margin: 0;
+}
+.jjg-tone-ok {
+  color: var(--jjg-ok);
+}
+.jjg-tone-warn {
+  color: var(--jjg-warn);
+}
+.jjg-tone-error {
+  color: var(--jjg-error);
+}
+.jjg-tone-busy {
+  color: var(--jjg-busy);
+}
+.jjg-tone-idle {
+  color: var(--jjg-muted);
+}
+.jjg-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--jjg-border);
+}
+.jjg-mode {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--jjg-bg);
+  background: var(--jjg-text);
+}
+.jjg-mode-detail {
+  background: var(--jjg-busy);
+}
+.jjg-mode-prompt {
+  color: var(--jjg-muted);
+  background: var(--jjg-raised);
+}
+.jjg-hint {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.jjg-hint-off {
+  opacity: 0.45;
+}

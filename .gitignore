@@ -1,1 +1,5 @@
 /target
+/result*
+/opencode-gui/node_modules/
+# Built by opencode-gui (`npm run build`), or by the flake's opencode-plugin.
+/.opencode/plugins/jj-graph/gui-experimental.cjs
