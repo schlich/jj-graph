@@ -1,6 +1,7 @@
 /target
 /result*
 /opencode-gui/node_modules/
+/.opencode/plugins/jj-graph/node_modules/
 /.opencode/plugins/jj-graph/gui-experimental.cjs
 devenv
 .devenv*

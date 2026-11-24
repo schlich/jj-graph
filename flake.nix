@@ -69,7 +69,15 @@
         # path in place of `jj-graph` on PATH. Link it into
         # ~/.config/opencode/plugins/jj-graph, or list its path under
         # `plugins` in opencode.json (the desktop app reads only the global one).
-        opencode-plugin = pkgs.buildNpmPackage {
+        opencode-plugin = let
+          # The plugin's own runtime dependencies, from its lockfile: XState,
+          # which the views' state machines run on.
+          opencode-plugin-modules = pkgs.importNpmLock.buildNodeModules {
+            package = pkgs.lib.importJSON ./.opencode/plugins/jj-graph/package.json;
+            packageLock = pkgs.lib.importJSON ./.opencode/plugins/jj-graph/package-lock.json;
+            nodejs = pkgs.nodejs_24;
+          };
+        in pkgs.buildNpmPackage {
           pname = "jj-graph-opencode-plugin";
           inherit version;
           # Symlinks stay out of the source: the plugin's layout.js link is
@@ -79,6 +87,7 @@
             fileset = pkgs.lib.fileset.unions [
               ./public/layout.js
               (pkgs.lib.fileset.fileFilter (f: f.hasExt "ts" || f.hasExt "tsx" || f.hasExt "css") ./.opencode/plugins/jj-graph)
+              ./.opencode/plugins/jj-graph/package.json
               ./opencode-gui/package.json
               ./opencode-gui/package-lock.json
               ./opencode-gui/vite.config.ts
@@ -90,21 +99,25 @@
           npmDepsHash = "sha256-FKyykYS2sCd1FG//WVGQNcpBihWNISYQcBsdpWixoIQ=";
           nativeBuildInputs = [ pkgs.bun ];
           # Only sourceRoot is writable after unpacking, and fetchNpmDeps runs
-          # the patch hooks too, so set the plugin directory up here.
+          # the patch hooks too, so set the plugin directory up here. Vite and
+          # tsc resolve XState from the plugin directory's own node_modules.
           preBuild = ''
             chmod -R u+w ..
             cp ../public/layout.js ../.opencode/plugins/jj-graph/layout.js
+            ln -s ${opencode-plugin-modules}/node_modules ../.opencode/plugins/jj-graph/node_modules
             ln -s ../.opencode/plugins/jj-graph plugin
             npx tsc -p tsconfig.json
           '';
           postBuild = ''
-            (cd ../.opencode/plugins/jj-graph && HOME=$TMPDIR bun test model.test.ts)
+            (cd ../.opencode/plugins/jj-graph && HOME=$TMPDIR bun test model.test.ts machines.test.ts)
           '';
           installPhase = ''
             runHook preInstall
             mkdir -p $out
             cd ../.opencode/plugins/jj-graph
             cp index.ts engine.ts model.ts rpc.ts tui.tsx layout.js gui-experimental.cjs $out/
+            cp actor.ts source.machine.ts view.machine.ts package.json $out/
+            ln -s ${opencode-plugin-modules}/node_modules $out/node_modules
             substituteInPlace $out/index.ts \
               --replace-fail 'const DEFAULT_COMMAND = "jj-graph"' \
                              'const DEFAULT_COMMAND = "${pkgs.lib.getExe jj-graph}"'

@@ -1,0 +1,10 @@
+{
+  "name": "jj-graph-opencode-plugin",
+  "private": true,
+  "description": "The jj-graph OpenCode plugin's runtime dependencies. Only XState belongs here: OpenCode supplies effect, solid-js and @opencode/*, and a second copy of Solid would break the views.",
+  "type": "module",
+  "dependencies": {
+    "xstate": "6.0.0-beta.3"
+  },
+  "license": "MIT"
+}

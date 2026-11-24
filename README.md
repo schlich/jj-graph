@@ -165,7 +165,17 @@ to OpenCode's front ends:
 
 The views follow the repository live: after every jj-graph tool call, after
 any other tool (an edit, a shell), and whenever jj records an operation,
-the jj you run in a terminal included. Outside a jj repository the plugin
+the jj you run in a terminal included.
+
+Both front ends run the same two [XState](https://stately.ai/docs/xstate)
+statecharts (XState 6, a beta). `source.machine.ts` reads a directory through
+the RPC: one read at a time, a change during a read means one more read after
+it, and jj-graph saying it cannot read the repository drops the read in
+flight. `view.machine.ts` holds the panel's focus, mode, section and
+selection; each mode state declares its name and keys in `meta`, so the mode
+line and the hint line list exactly the keys the machine would take, and the
+selection follows a change rather than a row position. Paste either file into
+[Stately](https://stately.ai) to see and simulate its statechart. Outside a jj repository the plugin
 does nothing, so it is safe to install for every project. OpenCode loads it
 by itself in this checkout. Others reach the same state through the
 `jj-graph` RPC (`rpc.ts`): a `state` method and a `changed` event.
@@ -181,7 +191,9 @@ in, so it needs nothing on PATH:
 nix build github:schlich/jj-graph#opencode-plugin -o ~/.config/opencode/plugins/jj-graph
 ```
 
-Used from a checkout instead, build the desktop part with
+Used from a checkout instead, install the plugin's one runtime dependency
+with `npm ci` in `.opencode/plugins/jj-graph/` (only XState belongs there:
+OpenCode supplies Solid and its own SDK), build the desktop part with
 `npm ci && npm run build` in `opencode-gui/`, and note that the plugin runs
 `jj-graph` from PATH. Make sure that is this program (another project ships
 a `jj-graph` without an `mcp` command), or name the binary with the
@@ -324,6 +336,7 @@ and the limits.
 cargo test --workspace                # jjr, the engine, and the 15 eval scenarios
 cargo test -p jj-graph --test evals   # just the eval scenarios (evals/scenarios.json)
 node --test                           # the web UI's layout tests
+(cd .opencode/plugins/jj-graph && bun test)  # the OpenCode plugin's model and statecharts
 ```
 
 The engine tests and eval scenarios build throwaway repositories with `jj`

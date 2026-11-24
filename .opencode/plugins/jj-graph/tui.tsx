@@ -5,24 +5,29 @@
 // plan step by step, jjr's diagnostics and the operation log. The server part
 // (index.ts) publishes all of it through the jj-graph RPC (rpc.ts).
 //
+// Two XState machines run it, the same ones the desktop app runs:
+// source.machine.ts reads each directory and follows its changes, and
+// view.machine.ts holds the panel's focus, mode, section and selection.
 // Wherever the panel takes keys, its bottom line names the mode (NORMAL,
 // DETAIL, or PROMPT while the panel is unfocused) and lists every key that
-// works in it.
+// works in it, both read from the view machine's current state.
 import { Plugin } from "@opencode/plugin/tui"
 import type { PanelInput, Route } from "@opencode/plugin/tui/context"
 import { useTerminalDimensions } from "@opentui/solid"
-import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show, type Accessor } from "solid-js"
+import { createActor, type ActorRefFrom, type SnapshotFrom } from "xstate"
+import { snapshotOf, useSnapshot } from "./actor"
 import * as M from "./model"
 import { JjGraph } from "./rpc"
+import { changed, connect, published, type sourceMachine } from "./source.machine"
+import * as V from "./view.machine"
 
 type Context = Plugin.Context
 type Theme = Context["theme"]
-type SectionID = "graph" | "plan" | "jjr" | "ops"
+type SectionID = V.SectionID
 
 const PANEL = "jj-graph"
 const OPEN = "jj-graph.open"
-const SECTIONS: readonly SectionID[] = ["graph", "plan", "jjr", "ops"]
-const TITLES: Readonly<Record<SectionID, string>> = { graph: "Graph", plan: "Plan", jjr: "jjr", ops: "Ops" }
 const EMPTY: Readonly<Record<SectionID, string>> = {
   graph: "no revisions in the revset",
   plan: "no dry run is open",
@@ -31,8 +36,6 @@ const EMPTY: Readonly<Record<SectionID, string>> = {
 }
 // Below this width the panel names only the current section.
 const NARROW = 44
-// How long to keep asking a cold location before deciding jj-graph is not there.
-const RETRIES = 8
 
 function toneColor(theme: Theme, tone: M.Tone) {
   switch (tone) {
@@ -49,15 +52,10 @@ function toneColor(theme: Theme, tone: M.Tone) {
   }
 }
 
-/** One directory's state as the views see it, fed by the RPC and its `changed` events. */
+/** One directory's source actor and its snapshot, shared by the sidebar, the footer and the panel. */
 interface Hub {
-  readonly state: () => M.State | undefined
-  readonly summary: () => M.Published | undefined
-  readonly error: () => string | undefined
-  /** jj-graph does not run here: not a jj repository, or the plugin is off. */
-  readonly absent: () => boolean
-  readonly updated: () => number | undefined
-  refresh(): void
+  readonly actor: ActorRefFrom<typeof sourceMachine>
+  readonly snapshot: Accessor<SnapshotFrom<typeof sourceMachine>>
 }
 
 interface Hubs {
@@ -65,81 +63,32 @@ interface Hubs {
   dispose(): void
 }
 
+/** What a sidebar shows for a hub: the summary, or why jj-graph cannot read the repository. */
+const summaryOf = (hub: Hub | undefined) => (hub ? published(hub.snapshot()) : undefined)
+/** jj-graph does not run in the hub's directory: not a jj repository, or the plugin is off. */
+const absentIn = (hub: Hub | undefined) => hub?.snapshot().matches("absent") ?? false
+
 function createHubs(context: Context): Hubs {
   const rpc = () => context.client.rpc(JjGraph)
-  const hubs = new Map<string, Hub & { changed(data: M.Published): void; dispose(): void }>()
+  const hubs = new Map<string, Hub & { dispose(): void }>()
   const off = rpc().events.on("changed", (event) => {
-    hubs.get(event.location.directory)?.changed(event.data.summary as M.Published)
+    hubs.get(event.location.directory)?.actor.send(changed(event.data.summary as M.Published))
   })
 
   const create = (directory: string) => {
-    const [state, setState] = createSignal<M.State>()
-    const [summary, setSummary] = createSignal<M.Published>()
-    const [error, setError] = createSignal<string>()
-    const [absent, setAbsent] = createSignal(false)
-    const [updated, setUpdated] = createSignal<number>()
-    const timers = new Set<ReturnType<typeof setTimeout>>()
-    let loading = false
-    let again = false
-    const later = (ms: number, run: () => void) => {
-      const timer = setTimeout(() => {
-        timers.delete(timer)
-        run()
-      }, ms)
-      timers.add(timer)
-    }
-    const load = async (attempt = 0): Promise<void> => {
-      if (loading) {
-        again = true
-        return
-      }
-      loading = true
-      try {
-        const next = (await rpc().state({}, { location: { directory } })) as M.State
-        setState(next)
-        setSummary(M.summarize(next))
-        setError(undefined)
-        setAbsent(false)
-        setUpdated(Date.now())
-      } catch (caught) {
-        const failure = caught as { type?: string; message?: string; data?: { reason?: string } }
-        if (failure?.type === "rpc.unavailable" || failure?.type === "rpc.method_not_found") {
-          // A location boots its server plugins on first use; ask again a few times.
-          if (attempt < RETRIES) later(500 * (attempt + 1), () => void load(attempt + 1))
-          else setAbsent(true)
-        } else if (failure?.type === "unavailable") {
-          setState(undefined)
-          setSummary({ unavailable: failure.data?.reason ?? failure.message ?? "unavailable" })
-        } else setError(failure?.message ?? String(caught))
-      } finally {
-        loading = false
-        if (again) {
-          again = false
-          void load()
-        }
-      }
-    }
-    void load()
+    const actor = createActor(
+      connect({
+        state: async (signal) => (await rpc().state({}, { location: { directory }, signal })) as M.State,
+        refresh: () => rpc().refresh({}, { location: { directory } }),
+      }),
+    ).start()
+    const { snapshot, dispose } = snapshotOf(actor)
     return {
-      state,
-      summary,
-      error,
-      absent,
-      updated,
-      refresh: () => {
-        void rpc()
-          .refresh({}, { location: { directory } })
-          .catch(() => undefined)
-          .then(() => load())
-      },
-      changed: (data: M.Published) => {
-        setAbsent(false)
-        setSummary(data)
-        if (M.isUnavailable(data)) setState(undefined)
-        else void load()
-      },
+      actor,
+      snapshot,
       dispose: () => {
-        for (const timer of timers) clearTimeout(timer)
+        dispose()
+        actor.stop()
       },
     }
   }
@@ -186,7 +135,7 @@ const basename = (directory: string) => directory.split("/").filter(Boolean).at(
 
 function SidebarSection(props: { context: Context; hub: () => Hub | undefined; open: (section?: SectionID) => void }) {
   const theme = () => props.context.theme
-  const summary = () => props.hub()?.summary()
+  const summary = () => summaryOf(props.hub())
   const lines = createMemo(() => {
     const value = summary()
     return value === undefined || M.isUnavailable(value) ? [] : M.summaryLines(value)
@@ -195,7 +144,7 @@ function SidebarSection(props: { context: Context; hub: () => Hub | undefined; o
   const sectionOf = (key: M.SummaryLine["key"]): SectionID => (key === "plan" ? "plan" : key === "jjr" ? "jjr" : "graph")
 
   return (
-    <Show when={props.hub() && !props.hub()!.absent()}>
+    <Show when={props.hub() && !absentIn(props.hub())}>
       <box>
         <box flexDirection="row" justifyContent="space-between" gap={1} onMouseUp={() => props.open()}>
           <text fg={theme().text.base}>
@@ -250,7 +199,7 @@ function SidebarSection(props: { context: Context; hub: () => Hub | undefined; o
 function HomeStatus(props: { context: Context; hub: () => Hub | undefined; open: () => void }) {
   const theme = () => props.context.theme
   const dimensions = useTerminalDimensions()
-  const summary = () => props.hub()?.summary()
+  const summary = () => summaryOf(props.hub())
   const text = createMemo(() => {
     const value = summary()
     if (value === undefined) return undefined
@@ -264,7 +213,7 @@ function HomeStatus(props: { context: Context; hub: () => Hub | undefined; open:
   })
   const shortcut = () => props.context.keymap.shortcuts(OPEN)[0]
   return (
-    <Show when={!props.hub()?.absent() && text()}>
+    <Show when={!absentIn(props.hub()) && text()}>
       {(value: () => { tone: M.Tone; text: string }) => (
         <box flexDirection="row" gap={1} flexShrink={0} onMouseUp={() => props.open()}>
           <text fg={theme().text.base} wrapMode="none">
@@ -280,16 +229,6 @@ function HomeStatus(props: { context: Context; hub: () => Hub | undefined; open:
       )}
     </Show>
   )
-}
-
-interface Key {
-  readonly bind: string
-  readonly title: string
-  /** Shown in the hint line as `hint label`; a key without one shares another's, as k shares j/k. */
-  readonly hint?: string
-  readonly label?: string
-  readonly enabled?: () => boolean
-  readonly run: () => void
 }
 
 function keepVisible(scroll: unknown, index: number) {
@@ -319,8 +258,9 @@ function GraphView(props: {
 }) {
   const theme = () => props.context.theme
   const dimensions = useTerminalDimensions()
-  const state = () => props.hub()?.state()
-  const summary = () => props.hub()?.summary()
+  const source = () => props.hub()?.snapshot()
+  const state = () => source()?.context.state ?? undefined
+  const summary = () => summaryOf(props.hub())
 
   const sectionRows = createMemo<Record<SectionID, M.Row[]>>(() => {
     const value = state()
@@ -333,37 +273,6 @@ function GraphView(props: {
     }
   })
 
-  // NORMAL moves through a section's rows; DETAIL reads one row. Esc goes back
-  // one step: from DETAIL to NORMAL, and from NORMAL out of the view.
-  const [mode, setMode] = createSignal<"normal" | "detail">("normal")
-  const [section, setSection] = createSignal<SectionID>(props.request()?.section ?? "graph")
-  createEffect(
-    on(
-      props.request,
-      (request) => {
-        if (!request) return
-        setSection(request.section)
-        setMode("normal")
-      },
-      { defer: true },
-    ),
-  )
-  const [cursors, setCursors] = createSignal<Partial<Record<SectionID, number>>>({})
-  const rows = createMemo(() => sectionRows()[section()])
-  // Start the graph on the working copy.
-  createEffect(
-    on(
-      () => sectionRows().graph,
-      (graph) => {
-        if (cursors().graph !== undefined || graph.length === 0) return
-        const wc = graph.findIndex((row) => row.glyph === "@")
-        if (wc > 0) setCursors((current) => ({ ...current, graph: wc }))
-      },
-    ),
-  )
-  const index = createMemo(() => Math.min(Math.max(cursors()[section()] ?? 0, 0), Math.max(rows().length - 1, 0)))
-  const selected = createMemo<M.Row | undefined>(() => rows()[index()])
-
   const docked = () => props.panel?.presentation === "panel"
   const focused = () => props.panel === undefined || props.panel.presentation === "fullscreen" || props.panel.focused
   const width = () => props.panel?.width ?? dimensions().width
@@ -372,101 +281,74 @@ function GraphView(props: {
   let list: unknown
   let detail: unknown
 
-  const select = (next: number) => {
-    const target = Math.min(Math.max(next, 0), Math.max(rows().length - 1, 0))
-    setCursors((current) => ({ ...current, [section()]: target }))
-    keepVisible(list, target)
-  }
-  const show = (id: SectionID | undefined) => {
-    if (id === undefined) return
-    setSection(id)
-    setMode("normal")
-  }
-  const cycle = (offset: number) =>
-    show(SECTIONS[(SECTIONS.indexOf(section()) + offset + SECTIONS.length) % SECTIONS.length])
-  const copySelected = async () => {
-    const value = selected()?.copy
-    if (!value) return
-    const copied = await copyText(props.context.renderer, value)
-    props.context.ui.toast.show({
-      variant: copied ? "success" : "warning",
-      title: copied ? "Copied" : "Nothing copied",
-      message: copied ? value.slice(0, 120) : "No clipboard is available here",
-      duration: 2_500,
-    })
-  }
-  const scrollDetail = (delta: number) =>
-    (detail as { scrollBy?: (rows: number) => void } | undefined)?.scrollBy?.(delta)
-
-  const normal: readonly Key[] = [
-    { bind: "j,down", title: "Next row", hint: "j/k", label: "move", run: () => select(index() + 1) },
-    { bind: "k,up", title: "Previous row", run: () => select(index() - 1) },
-    { bind: "g,home", title: "First row", run: () => select(0) },
-    { bind: "shift+g,end", title: "Last row", run: () => select(rows().length - 1) },
-    { bind: "l,right,tab", title: "Next section", hint: "h/l", label: "section", run: () => cycle(1) },
-    { bind: "h,left", title: "Previous section", run: () => cycle(-1) },
-    ...SECTIONS.map(
-      (id, position): Key => ({ bind: String(position + 1), title: `Show ${TITLES[id]}`, run: () => show(id) }),
+  // NORMAL moves through a section's rows; DETAIL reads one row. Esc goes back
+  // one step: from DETAIL to NORMAL, and from NORMAL out of the view.
+  const view = createActor(V.viewMachine, {
+    input: { surface: props.panel ? "panel" : "screen", section: props.request()?.section },
+  }).start()
+  onCleanup(() => view.stop())
+  const snapshot = useSnapshot(view)
+  createEffect(on(focused, (has) => view.send({ type: has ? "FOCUS" : "BLUR" })))
+  createEffect(
+    on(
+      props.request,
+      (request) => {
+        if (request) view.send({ type: "SHOW", section: request.section })
+      },
+      { defer: true },
     ),
-    {
-      bind: "return",
-      title: "Show details",
-      hint: "⏎",
-      label: "details",
-      enabled: () => selected() !== undefined,
-      run: () => setMode("detail"),
-    },
-    {
-      bind: "y",
-      title: "Copy the change id, step, fix or operation",
-      hint: "y",
-      label: "copy",
-      enabled: () => selected() !== undefined,
-      run: () => void copySelected(),
-    },
-    { bind: "r", title: "Read the repository again", hint: "r", label: "refresh", run: () => props.hub()?.refresh() },
-    {
-      bind: "f",
-      title: "Toggle full screen",
-      hint: "f",
-      label: "full screen",
-      enabled: () => props.panel !== undefined,
-      run: () => props.panel?.toggleFullscreen(),
-    },
-    { bind: "escape,q", title: "Close the jj graph view", hint: "esc", label: "close", run: () => props.onClose() },
-  ]
-  const details: readonly Key[] = [
-    { bind: "j,down", title: "Scroll down", hint: "j/k", label: "scroll", run: () => scrollDetail(1) },
-    { bind: "k,up", title: "Scroll up", run: () => scrollDetail(-1) },
-    {
-      bind: "y",
-      title: "Copy the change id, step, fix or operation",
-      hint: "y",
-      label: "copy",
-      enabled: () => selected() !== undefined,
-      run: () => void copySelected(),
-    },
-    { bind: "escape,return,q", title: "Back to the list", hint: "esc", label: "back", run: () => setMode("normal") },
-  ]
-  const keys = () => (mode() === "detail" ? details : normal)
+  )
+  createEffect(
+    on(sectionRows, (value) =>
+      view.send({
+        type: "ROWS",
+        rows: { graph: value.graph.map((r) => r.key), plan: value.plan.map((r) => r.key), jjr: value.jjr.map((r) => r.key), ops: value.ops.map((r) => r.key) },
+        wc: value.graph.find((row) => row.glyph === "@")?.key ?? null,
+      }),
+    ),
+  )
+  const section = () => snapshot().context.section
+  const rows = createMemo(() => sectionRows()[section()])
+  const index = createMemo(() => V.cursorIndex(snapshot().context))
+  const selected = createMemo<M.Row | undefined>(() => rows()[index()])
+  createEffect(on(index, (row) => keepVisible(list, row)))
+
+  view.on("copy", (event) => {
+    const value = sectionRows()[event.section].find((row) => row.key === event.key)?.copy
+    if (!value) return
+    void copyText(props.context.renderer, value).then((copied) =>
+      props.context.ui.toast.show({
+        variant: copied ? "success" : "warning",
+        title: copied ? "Copied" : "Nothing copied",
+        message: copied ? value.slice(0, 120) : "No clipboard is available here",
+        duration: 2_500,
+      }),
+    )
+  })
+  view.on("scroll", (event) => (detail as { scrollBy?: (rows: number) => void } | undefined)?.scrollBy?.(event.by))
+  view.on("refresh", () => props.hub()?.actor.send({ type: "REFRESH" }))
+  view.on("fullscreen", () => props.panel?.toggleFullscreen())
+  view.on("close", () => props.onClose())
 
   // Inside the session panel this layer is live only while the panel has
   // focus; the hint line then switches from how to focus it to these keys.
+  // The keys are the current mode state's, and each is enabled exactly when
+  // the view machine would take its event.
   props.context.keymap.layer(() => ({
-    commands: keys().map((key) => ({
-      bind: key.bind,
-      title: key.title,
+    commands: V.bindings(snapshot()).map((binding) => ({
+      bind: binding.tui,
+      title: binding.title,
       group: "jj graph",
-      enabled: key.enabled,
+      enabled: () => snapshot().can(binding.event),
       run: () => {
-        key.run()
+        view.send(binding.event)
       },
     })),
   }))
 
-  const badge = () => (!focused() ? "PROMPT" : mode() === "detail" ? "DETAIL" : "NORMAL")
+  const badge = () => V.badge(snapshot())
   const hints = createMemo(() => {
-    if (!focused()) {
+    if (badge() === "PROMPT") {
       const focus = props.context.keymap.shortcuts("pane.focus.right")[0]
       const close = props.context.keymap.shortcuts(OPEN)[0]
       return [
@@ -474,11 +356,7 @@ function GraphView(props: {
         ...(close ? [{ key: close, label: "close", enabled: true }] : []),
       ]
     }
-    return keys().flatMap((key) =>
-      key.hint === undefined
-        ? []
-        : [{ key: key.hint, label: key.label ?? key.title, enabled: key.enabled ? key.enabled() : true }],
-    )
+    return V.hints(snapshot()).map((hint) => ({ key: hint.hint, label: hint.label, enabled: hint.enabled }))
   })
   const tabBadge = (id: SectionID): M.Tone | undefined => {
     const value = summary()
@@ -489,11 +367,12 @@ function GraphView(props: {
     return undefined
   }
   const status = createMemo(() => {
+    const current = source()
     const value = state()
     if (value) return M.heading(value)
-    const published = summary()
-    if (published && M.isUnavailable(published)) return `unavailable: ${published.unavailable}`
-    return props.hub()?.error() ?? (props.hub()?.absent() ? "jj-graph is not running here" : "loading…")
+    if (current?.matches("unavailable")) return `unavailable: ${current.context.reason}`
+    if (current?.matches("failed")) return current.context.error ?? "failed"
+    return current?.matches("absent") ? "jj-graph is not running here" : "loading…"
   })
 
   return (
@@ -522,24 +401,24 @@ function GraphView(props: {
         when={width() >= NARROW}
         fallback={
           <text fg={theme().text.base} wrapMode="none" flexShrink={0}>
-            <b>{TITLES[section()]}</b>
+            <b>{V.TITLES[section()]}</b>
             <span style={{ fg: theme().text.muted }}>
-              {` ${SECTIONS.indexOf(section()) + 1}/${SECTIONS.length} · h/l section`}
+              {` ${V.SECTIONS.indexOf(section()) + 1}/${V.SECTIONS.length} · h/l section`}
             </span>
           </text>
         }
       >
         <box flexDirection="row" gap={2} flexShrink={0}>
-          <For each={SECTIONS}>
+          <For each={V.SECTIONS}>
             {(id, position) => (
               <text
                 wrapMode="none"
                 flexShrink={0}
                 fg={id === section() ? theme().text.base : theme().text.muted}
-                onMouseUp={() => show(id)}
+                onMouseUp={() => view.send({ type: "SHOW", section: id })}
               >
                 <span style={{ fg: theme().text.muted }}>{position() + 1} </span>
-                {id === section() ? <b>{TITLES[id]}</b> : TITLES[id]}
+                {id === section() ? <b>{V.TITLES[id]}</b> : V.TITLES[id]}
                 <Show when={tabBadge(id)}>
                   {(tone: () => M.Tone) => (
                     <span style={{ fg: toneColor(theme(), tone()) }}> {M.glyph[tone()]}</span>
@@ -552,7 +431,7 @@ function GraphView(props: {
       </Show>
       <box height={1} flexShrink={0} />
       <Show
-        when={mode() === "normal"}
+        when={snapshot().matches({ mode: "normal" })}
         fallback={
           <scrollbox ref={(element: unknown) => (detail = element)} flexGrow={1} minHeight={0}>
             <text fg={theme().text.base} wrapMode="word">
@@ -583,10 +462,7 @@ function GraphView(props: {
                   flexDirection="row"
                   minWidth={0}
                   backgroundColor={position === index() && focused() ? highlight() : surface()}
-                  onMouseUp={() => {
-                    if (position === index()) setMode("detail")
-                    else select(position)
-                  }}
+                  onMouseUp={() => view.send({ type: "PICK", key: row().key })}
                 >
                   <text fg={theme().text.base} wrapMode="none" truncate flexGrow={1} flexShrink={1} minWidth={0}>
                     <span style={{ fg: theme().text.muted }}>{row().lanes?.before ?? ""}</span>
@@ -608,9 +484,9 @@ function GraphView(props: {
           paddingLeft={1}
           paddingRight={1}
           backgroundColor={
-            !focused()
+            badge() === "PROMPT"
               ? theme().background.raised.high
-              : mode() === "detail"
+              : badge() === "DETAIL"
                 ? theme().text.feedback.info.base
                 : theme().text.base
           }
