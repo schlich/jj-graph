@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/jjr", "crates/jj-graph"]
-# jj-normalize keeps its own lockfile and its own Nix build
-# (crates/jj-normalize/default.nix): it shares no code with the others and
+# jj-shape keeps its own lockfile and its own Nix build
+# (crates/jj-shape/default.nix): it shares no code with the others and
 # drives jj only as a subprocess.
-exclude = ["crates/jj-normalize"]
+exclude = ["crates/jj-shape"]
 
 [workspace.package]
 version = "0.2.0"

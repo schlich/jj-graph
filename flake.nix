@@ -1,5 +1,5 @@
 {
-  description = "jj-graph: a DAG-centred web UI and MCP server for Jujutsu, with the jjr framework and the jj-normalize change-graph normalizer";
+  description = "jj-graph: a DAG-centred web UI and MCP server for Jujutsu, with the jjr framework and the jj-shape change-graph normalizer";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -17,21 +17,21 @@
           ./crates
           ./public
           ./docs
-        ]) ./crates/jj-normalize;
+        ]) ./crates/jj-shape;
       };
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
-      # jj-normalize (crates/jj-normalize): its package, whose build runs its
+      # jj-shape (crates/jj-shape): its package, whose build runs its
       # lints and tests, and the model checks of its Quint specifications.
       # Linux only: its tests drive jj, Graphviz, and mergiraf.
-      normalize = pkgs: import ./crates/jj-normalize { inherit pkgs; inherit (pkgs) lib; };
+      normalize = pkgs: import ./crates/jj-shape { inherit pkgs; inherit (pkgs) lib; };
       onLinux = pkgs: attrs: nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux attrs;
     in
     {
       packages = forAllSystems (pkgs: onLinux pkgs {
-        jj-normalize = (normalize pkgs).package;
+        jj-shape = (normalize pkgs).package;
         # TLC over every graph of NormalizeTiny: about twelve minutes, so it
         # stays out of `nix flake check`.
-        jj-normalize-model-exhaustive = (normalize pkgs).exhaustive;
+        jj-shape-model-exhaustive = (normalize pkgs).exhaustive;
       } // rec {
         jj-graph = pkgs.rustPlatform.buildRustPackage {
           pname = "jj-graph";
@@ -142,8 +142,8 @@
       # `nix flake check` builds jj-graph with its full test suite and the
       # OpenCode plugin, and runs the web UI's layout tests.
       checks = forAllSystems (pkgs: onLinux pkgs {
-        jj-normalize = (normalize pkgs).package;
-        jj-normalize-model = (normalize pkgs).model;
+        jj-shape = (normalize pkgs).package;
+        jj-shape-model = (normalize pkgs).model;
       } // {
         jj-graph = self.packages.${pkgs.stdenv.hostPlatform.system}.jj-graph;
         opencode-plugin = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-plugin;
