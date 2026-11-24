@@ -202,7 +202,9 @@ pub fn forge_adapters() -> Vec<&'static ForgeAdapter> {
 pub struct RedTestOptions {
     /// The change under test (its tests and implementation together).
     pub change_id: Option<String>,
-    pub description: Option<String>,
+    /// A red snapshot from the change's evolog, such as `xkpunxsx/2` or a
+    /// commit id. `jj evolog -r <change>` lists them.
+    pub red_snapshot: Option<String>,
     pub test_command: Option<String>,
 }
 
@@ -346,85 +348,80 @@ impl JjrPatterns {
         )
     }
 
-    /// TDD Red-Test Verification: temporarily lift the implementation into a
-    /// parallel sibling so the tests prove they fail without it, then fold the
-    /// tests back. `jj split` keeps the change id on the selected
-    /// (implementation) side and gives the remaining tests a new id, so the
-    /// tests fold into the implementation and the change keeps its id. No red
-    /// commit stays in the DAG. `test_command` defaults to `npm test`.
+    /// TDD Red-Test Verification: a red is a commit of the change, not a
+    /// change of its own. Tests run through `jj run` snapshot the working
+    /// copy first, so the red a change went through stays in its evolog,
+    /// where `jj run --ignore-changes` runs it again. For a change nobody
+    /// watched go red, a throwaway probe on top of it restores the
+    /// implementation files from the parent and keeps the tests, which must
+    /// then fail. Nothing is split and the change keeps its commit id.
+    /// `test_command` defaults to `npm test`.
     pub fn verify_red_test(impl_files: &[String], opts: &RedTestOptions) -> JjrRecipe {
         let change_id = present(opts.change_id.as_deref());
-        let description = present(opts.description.as_deref());
         let test_command = opts.test_command.as_deref().unwrap_or("npm test");
         let target = change_id.map_or("<change>", short);
-        let edit_change = |title: &str, invariant: &str| {
-            change_id.map(|id| {
-                step(
-                    title,
-                    Some(argv(&["edit", id])),
-                    format!("jj edit {target}"),
-                    true,
-                    invariant,
-                )
-            })
+        let red = present(opts.red_snapshot.as_deref())
+            .map_or_else(|| format!("{target}/<n>"), ToOwned::to_owned);
+        // The probe needs both the change and the files to take away.
+        let probe = change_id.filter(|_| !impl_files.is_empty());
+        let files = if impl_files.is_empty() {
+            "<implementation files>".to_owned()
+        } else {
+            impl_files.join(" ")
         };
-
-        let mut split_args = argv(&["split", "--parallel"]);
-        if let Some(d) = description {
-            split_args.extend(argv(&["-m", d]));
-        }
-        split_args.extend(impl_files.iter().cloned());
-        let split_message = description
-            .map(|d| format!("-m {} ", q(d)))
-            .unwrap_or_default();
-
-        let mut steps = Vec::new();
-        steps.extend(edit_change(
-            "Put the working copy on the change under test",
-            "@ holds the behavior together with its tests.",
-        ));
-        steps.push(step(
-            "Lift implementation into a parallel sibling change",
-            Some(split_args),
-            format!(
-                "jj split --parallel {split_message}{}",
-                impl_files.join(" ")
-            ),
-            true,
-            "The implementation keeps the change id; @ becomes a tests-only sibling.",
-        ));
-        steps.push(step(
-            "Run the tests without the implementation (expect red)",
-            None,
-            format!("jj run --ignore-changes -r @ -- {test_command}"),
-            false,
-            "A failing run proves the tests exercise the new behavior.",
-        ));
-        steps.push(step(
-            "Fold the tests back into the implementation change",
-            change_id.map(|id| {
-                argv(&[
-                    "squash",
-                    "--from",
-                    "@",
-                    "--into",
-                    id,
-                    "--use-destination-message",
-                ])
-            }),
-            format!("jj squash --from @ --into {target} --use-destination-message"),
-            change_id.is_some(),
-            "One self-verifying green revision again, under its original change id.",
-        ));
-        steps.extend(edit_change(
-            "Return to the change",
-            "The temporary tests-only change is gone.",
-        ));
         recipe(
             "tdd-red-test",
             "TDD Red-Test Verification",
-            "Verify tests fail without the implementation, without polluting final history with failing commits.",
-            steps,
+            "Prove the tests failed before the implementation existed without splitting the change: run its recorded red again, or take the implementation away in a throwaway probe.",
+            vec![
+                step(
+                    "Find the recorded red in the change's evolog",
+                    None,
+                    format!("jj evolog -r {target}"),
+                    false,
+                    "Every snapshot is a commit of the change, and its red comes before its green.",
+                ),
+                step(
+                    "Run the recorded red again (expect red)",
+                    None,
+                    format!("jj run --ignore-changes -r {red} -- {test_command}"),
+                    false,
+                    "The red snapshot fails in an isolated checkout; nothing is rewritten.",
+                ),
+                step(
+                    "Open a throwaway probe on the change",
+                    change_id.map(|id| argv(&["new", id])),
+                    format!("jj new {target}"),
+                    change_id.is_some(),
+                    "The change itself is never rewritten.",
+                ),
+                step(
+                    "Take the implementation away and keep the tests",
+                    probe.map(|id| {
+                        let mut args = argv(&["restore", "--from"]);
+                        args.push(format!("{id}-"));
+                        args.extend(impl_files.iter().cloned());
+                        args
+                    }),
+                    format!("jj restore --from {target}- {files}"),
+                    probe.is_some(),
+                    "@ holds the parent's implementation and the change's tests.",
+                ),
+                step(
+                    "Run the tests without the implementation (expect red)",
+                    None,
+                    format!("jj run --ignore-changes -r @ -- {test_command}"),
+                    false,
+                    "A failing run proves the tests still need the implementation.",
+                ),
+                step(
+                    "Discard the probe",
+                    change_id.map(|_| argv(&["abandon"])),
+                    "jj abandon",
+                    change_id.is_some(),
+                    "The probe is gone; the change keeps its commit id and nothing was split.",
+                ),
+            ],
         )
     }
 

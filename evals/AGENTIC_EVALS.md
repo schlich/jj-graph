@@ -40,7 +40,7 @@ jjr is validated with a **4-Tier Agentic Eval Harness** executed inside ephemera
 | :--- | :--- | :--- |
 | **A. Topology & Dependency** | `topo-01` Accidental linear chain<br>`topo-02` Mutually entangled split | Two-Part Dependency Test (`parallelize` vs `collapse` vs `stack`) |
 | **B. Hard Guardrails** | `guard-01` Megamerge push attempt<br>`guard-02` Immutable bedrock rewrite<br>`guard-03` Colocated git is read-only<br>`guard-04` Divergence halt & recovery<br>`guard-05` `--ignore-immutable` and `squash --into` bedrock<br>`pre-01` Pre-flight `trunk()` / `immutable_heads()` | Hard-block before mutating disk; actionable remediation surfaced |
-| **C. SDLC & Graph Surgery** | `sdlc-01` *Tidy First?* structural below behavioral<br>`sdlc-02` TDD Red-Test `split --parallel` + `jj run`<br>`sdlc-03` Branch by Abstraction 5-step swap<br>`sdlc-04` `jj absorb` out of a polluted megamerge | Every publishable intermediate revision builds and passes tests |
+| **C. SDLC & Graph Surgery** | `sdlc-01` *Tidy First?* structural below behavioral<br>`sdlc-02` TDD Red-Test from the evolog + `jj run`<br>`sdlc-03` Branch by Abstraction 5-step swap<br>`sdlc-04` `jj absorb` out of a polluted megamerge | Every publishable intermediate revision builds and passes tests |
 | **D. Dual Time-Axis & Convergence** | `time-01` Surgical `evolog` vs repo-wide `op restore`<br>`conv-01` Post-merge convergence to `trunk()` | Single-change restore preserves sibling arms; clean post-merge loop |
 | **E. Publishing** | `pub-01` Verify a stack (`jj fix` + `jj run`), publish green bottom layers | Nothing red, unformatted, or unverified is bookmarked or pushed |
 

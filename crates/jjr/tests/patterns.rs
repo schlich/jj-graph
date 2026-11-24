@@ -56,36 +56,51 @@ fn recipes_follow_the_reference_and_stay_dry_runnable_where_jj_allows() {
         &strings(&["src/impl.js"]),
         &RedTestOptions {
             change_id: Some("mmmmmmmmmmmm".into()),
-            description: Some("feat: impl".into()),
+            red_snapshot: Some("kkkkkkkk/2".into()),
             test_command: None,
         },
     );
     assert_eq!(
         subcommands(&red),
         [
-            Some("edit"),
-            Some("split"),
             None,
-            Some("squash"),
-            Some("edit")
-        ]
+            None,
+            Some("new"),
+            Some("restore"),
+            None,
+            Some("abandon")
+        ],
+        "only the probe touches the repository, and it is thrown away"
     );
+    assert_eq!(red.steps[0].command, "jj evolog -r mmmmmmmm");
+    assert_eq!(
+        red.steps[1].command, "jj run --ignore-changes -r kkkkkkkk/2 -- npm test",
+        "the recorded red runs again in an isolated checkout"
+    );
+    assert_eq!(args(&red.steps[2]), Some(vec!["new", "mmmmmmmmmmmm"]));
     assert_eq!(
         args(&red.steps[3]),
-        Some(vec![
-            "squash",
-            "--from",
-            "@",
-            "--into",
-            "mmmmmmmmmmmm",
-            "--use-destination-message"
-        ]),
-        "tests fold into the implementation, which kept the change id"
+        Some(vec!["restore", "--from", "mmmmmmmmmmmm-", "src/impl.js"]),
+        "the probe takes the implementation away and keeps the tests"
+    );
+    assert_eq!(
+        red.steps[4].command,
+        "jj run --ignore-changes -r @ -- npm test"
     );
     assert!(
         !red.steps
             .iter()
-            .any(|s| s.args.iter().flatten().any(|a| a == "@+"))
+            .any(|s| s.command.contains("split") || s.command.contains("squash")),
+        "nothing is split off and folded back"
+    );
+    let unknown = JjrPatterns::verify_red_test(&[], &RedTestOptions::default());
+    assert_eq!(
+        unknown.steps[1].command,
+        "jj run --ignore-changes -r <change>/<n> -- npm test"
+    );
+    assert!(
+        unknown.steps.iter().all(|s| !s.dry_runnable),
+        "without a change and its files there is nothing to preview"
     );
 
     let conv = JjrPatterns::post_merge_convergence(false);

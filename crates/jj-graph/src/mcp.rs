@@ -57,7 +57,7 @@ const RECIPES: &[(&str, &[&str])] = &[
     ),
     (
         "tdd-red-test",
-        &["paths", "changeId?", "description?", "testCommand?"],
+        &["paths", "changeId?", "redSnapshot?", "testCommand?"],
     ),
     ("branch-by-abstraction", &["subject"]),
     ("expand-contract", &["subject", "from?", "to?"]),
@@ -100,7 +100,7 @@ fn make_recipe(pattern: &str, p: &Value, default_test: Option<&str>) -> AppResul
             &list("paths")?,
             &RedTestOptions {
                 change_id: s("changeId").map(ToOwned::to_owned),
-                description: s("description").map(ToOwned::to_owned),
+                red_snapshot: s("redSnapshot").map(ToOwned::to_owned),
                 test_command: test.map(ToOwned::to_owned),
             },
         ),
@@ -742,7 +742,8 @@ fn tools() -> Vec<Tool> {
                 "prerequisite": str_prop("edit-workflow: what has to land below the edited change."),
                 "area": str_prop("characterization-tests: the code being characterized."),
                 "testCommand": str_prop("The test command to run in revisions. Default: the configured verify command."),
-                "paths": str_list("tdd-red-test: implementation files to lift out; extract-shared-primitive: files holding the primitive."),
+                "paths": str_list("tdd-red-test: implementation files the probe takes away; extract-shared-primitive: files holding the primitive."),
+                "redSnapshot": str_prop("tdd-red-test: a red snapshot from the change's evolog, such as `xkpunxsx/2` or a commit id."),
                 "subject": str_prop("branch-by-abstraction: the seam; expand-contract: what is being migrated."),
                 "from": str_prop("expand-contract: the old path; extract-shared-primitive: the change holding the primitive now."),
                 "to": str_prop("expand-contract: the new path."),

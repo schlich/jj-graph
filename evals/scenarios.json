@@ -87,11 +87,11 @@
     {
       "id": "sdlc-02",
       "suite": "SDLC",
-      "title": "TDD Red-Test verification without WIP commits",
-      "faultInjected": "New feature + unit test in `@` requiring proof that the test fails without implementation",
-      "jevSignal": "JjrPatterns.verifyRedTest emits `jj split --parallel` -> `jj run --ignore-changes -r @` (red) -> `jj squash --from @ --into <change> -u`",
-      "expectedOutcome": "Test verified red in isolation, then the tests fold back into the implementation, which kept the change id: one green revision",
-      "deterministicAssertions": ["finalMutableCount === 1", "changeIdPreserved === true", "allCommitsPassTests === true"]
+      "title": "TDD Red-Test verification from the evolog",
+      "faultInjected": "A feature change whose evolog holds the red snapshot taken before its implementation, and a need to prove its tests still fail without that implementation",
+      "jevSignal": "JjrPatterns.verifyRedTest emits `jj evolog -r <change>` -> `jj run --ignore-changes -r <change>/<n>` (red) -> probe: `jj new <change>` -> `jj restore --from <change>- <impl>` -> `jj run --ignore-changes -r @` (red) -> `jj abandon`",
+      "expectedOutcome": "The recorded red fails again without rewriting anything, the probe is red without the implementation and is abandoned, and the change keeps its commit id: one green revision",
+      "deterministicAssertions": ["recordedRedFails === true", "finalMutableCount === 1", "commitIdUnchanged === true", "allCommitsPassTests === true"]
     },
     {
       "id": "sdlc-03",

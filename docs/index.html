@@ -976,11 +976,13 @@ jj run --ignore-changes -r 'kmpqrstu- | kmpqrstu' -- npm test</code></pre>
             <h3>TDD Red-Test Verification</h3>
             <span class="pattern-tag">JjrPatterns::verify_red_test()</span>
           </div>
-          <p>Prove a new test actually fails without its implementation. <code>jj split --parallel</code> keeps the change id on the selected implementation files and moves <code>@</code> to a tests-only sibling; once the run is red, the tests fold back into the implementation, so the change keeps its id and no red commit stays in the DAG.</p>
-          <pre><code>jj split --parallel -m "feat: ledger totals" src/billing/ledger.ts
-jj run --ignore-changes -r @ -- npm test                  # confirm red
-jj squash --from @ --into kmpqrstu --use-destination-message
-jj edit kmpqrstu</code></pre>
+          <p>Prove a new test failed before its implementation existed. Tests run through <code>jj run</code> snapshot the working copy first, so the red stays in the change's history as a commit: <code>jj evolog</code> lists it and <code>jj run --ignore-changes</code> fails it again. For a change nobody watched go red, a throwaway probe keeps the tests, takes the implementation away and must fail. Nothing is split, and the change keeps its commit id.</p>
+          <pre><code>jj evolog -r kmpqrstu                                # find the recorded red
+jj run --ignore-changes -r xkpunxsx/2 -- npm test    # it fails again
+jj new kmpqrstu                                      # or probe the change now
+jj restore --from kmpqrstu- src/billing/ledger.ts
+jj run --ignore-changes -r @ -- npm test             # red without the implementation
+jj abandon</code></pre>
         </div>
 
         <div class="pattern-item">
@@ -1462,7 +1464,7 @@ jj new agent-a@ agent-b@ -m "local: agents megamerge"</code></pre>
       { id: 'guard-05', suite: 'Guardrails', title: 'Never force-rewrite immutable()', sig: '--ignore-immutable refused; squash --into bedrock blocked', assert: 'immutableShasUnchanged === true' },
       { id: 'pre-01', suite: 'Guardrails', title: 'Pre-flight trunk() and immutable_heads() before mutating', sig: 'PreflightGuard + ::trunk() bedrock', assert: 'trunkHistoryUnchanged === true' },
       { id: 'sdlc-01', suite: 'SDLC', title: 'Tidy First?: slip structural refactor below behavioral', sig: 'Jev choice(intent) + jj rebase -r ... -B ...', assert: 'structuralBelowBehavioral === true' },
-      { id: 'sdlc-02', suite: 'SDLC', title: 'TDD Red-Test verification without WIP commits', sig: 'jj split --parallel -> jj run (red) -> jj squash --into <change>', assert: 'finalMutableCount === 1' },
+      { id: 'sdlc-02', suite: 'SDLC', title: 'TDD Red-Test verification from the evolog', sig: 'jj run -r <change>/<n> (red) -> jj new, jj restore --from <change>- (probe, red) -> jj abandon', assert: 'finalMutableCount === 1' },
       { id: 'sdlc-03', suite: 'SDLC', title: 'Branch by Abstraction 5-step subsystem swap', sig: 'Dry-run preview of 5 buildable revisions', assert: 'allCommitsBuild === true' },
       { id: 'sdlc-04', suite: 'SDLC', title: 'Route fixups in a megamerge via jj absorb + Jev router', sig: 'MEGAMERGE_NOT_EMPTY -> jj absorb --from; Jev routeHunk choice()', assert: 'megamergeUnpolluted === true' },
       { id: 'time-01', suite: 'DualTimeAxis', title: 'Surgical evolog restore preserving sibling arm', sig: 'Jev recommendRecovery -> jj restore --from', assert: 'changeBPreserved === true' },

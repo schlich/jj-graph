@@ -127,6 +127,22 @@ impl EvalRepo {
         run("jj", &full, &self.dir)
     }
 
+    /// A jj command that may fail: whether it succeeded, and what it printed.
+    fn try_jj(&self, args: &[&str]) -> (bool, String) {
+        let out = Command::new("jj")
+            .args(["--color", "never", "--no-pager"])
+            .args(args)
+            .current_dir(&self.dir)
+            .output()
+            .unwrap_or_else(|e| panic!("run jj: {e}"));
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (out.status.success(), text)
+    }
+
     fn id(&self, rev: &str, field: &str) -> String {
         self.jj(&["log", "--no-graph", "-r", rev, "-T", field])
             .trim()
@@ -504,67 +520,78 @@ fn sdlc_01_tidy_first_detects_structural_above_behavioral_and_dry_runs_the_slip_
 }
 
 #[test]
-fn sdlc_02_tdd_red_test_verification_round_trips_under_the_same_change_id() {
+fn sdlc_02_tdd_red_test_reruns_the_recorded_red_and_probes_without_rewriting() {
     let repo = EvalRepo::plain();
-    repo.write("answer.js", "export const answer = 42;\n");
-    repo.write("test/answer.sh", "grep -q \"answer = 42\" answer.js\n");
     repo.jj(&["describe", "-m", "feat: answer with its test"]);
+    // Red first: the test alone, which the next jj command snapshots as a
+    // commit of the change. Then green.
+    repo.write("test/answer.sh", "grep -q \"answer = 42\" answer.js\n");
+    repo.jj(&["util", "snapshot"]);
+    repo.write("answer.js", "export const answer = 42;\n");
+    repo.jj(&["util", "snapshot"]);
     let change = repo.change("@");
-    let app = RefCell::new(repo.app(Some("sh test/answer.sh")));
+    let green = repo.id("@", "commit_id");
+    let red_snapshot = format!("{change}/1");
     let recipe = JjrPatterns::verify_red_test(
         &owned(&["answer.js"]),
         &RedTestOptions {
             change_id: Some(change.clone()),
-            description: Some("feat: answer with its test".into()),
-            test_command: None,
+            red_snapshot: Some(red_snapshot.clone()),
+            test_command: Some("sh test/answer.sh".into()),
         },
     );
-    let (split, run_tests, fold, back) = (
+    let (rerun, open, take, run_tests, discard) = (
         &recipe.steps[1],
         &recipe.steps[2],
         &recipe.steps[3],
         &recipe.steps[4],
+        &recipe.steps[5],
     );
     assert!(
-        !run_tests.dry_runnable,
+        !rerun.dry_runnable && !run_tests.dry_runnable,
         "running tests is not a repository operation"
     );
 
-    let r = runner();
-    let lifted = r
-        .dry_run(&AppHost(&app), split.args.as_ref().unwrap(), None, false)
-        .unwrap();
-    assert!(!lifted.blocked);
-    let tests = lifted.state["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|n| n["wc"] == true)
-        .unwrap();
-    assert_ne!(s(&tests["change"]), change, "@ is the tests-only sibling");
+    // The red recorded in the evolog fails again, and nothing is rewritten.
+    let (passed, output) = repo.try_jj(&[
+        "run",
+        "--ignore-changes",
+        "-r",
+        &red_snapshot,
+        "--",
+        "sh",
+        "test/answer.sh",
+    ]);
+    assert!(!passed, "the recorded red is still red: {output}");
     assert_eq!(
-        strings(&by_change(&lifted.state, &change)["paths"]),
-        ["answer.js"],
-        "the implementation keeps the change id"
+        repo.id("@", "commit_id"),
+        green,
+        "re-running the red rewrote nothing"
     );
 
-    // Red: the tests fail without the implementation.
-    let red = post(
+    // The probe keeps the tests and takes the implementation away.
+    let app = RefCell::new(repo.app(Some("sh test/answer.sh")));
+    let r = runner();
+    for step in [open, take] {
+        let previewed = r
+            .dry_run(&AppHost(&app), step.args.as_ref().unwrap(), None, false)
+            .unwrap();
+        assert!(!previewed.blocked, "{} is allowed", step.command);
+    }
+    let probe = post(
         &mut app.borrow_mut(),
         "/api/jjr/verify",
         json!({ "range": "@" }),
     )
     .unwrap();
-    assert_eq!(red["results"].as_array().unwrap().len(), 1);
+    assert_eq!(probe["results"].as_array().unwrap().len(), 1);
     assert_eq!(
-        red["results"][0]["state"], "red",
-        "test verified red in isolation"
+        probe["results"][0]["state"], "red",
+        "the tests fail without the implementation"
     );
 
-    r.dry_run(&AppHost(&app), fold.args.as_ref().unwrap(), None, false)
-        .unwrap();
     let done = r
-        .dry_run(&AppHost(&app), back.args.as_ref().unwrap(), None, false)
+        .dry_run(&AppHost(&app), discard.args.as_ref().unwrap(), None, false)
         .unwrap();
     let work: Vec<&Value> = done.state["nodes"]
         .as_array()
@@ -575,28 +602,21 @@ fn sdlc_02_tdd_red_test_verification_round_trips_under_the_same_change_id() {
                 && !(n["empty"] == true && s(&n["description"]).trim().is_empty())
         })
         .collect();
-    assert_eq!(work.len(), 1, "finalMutableCount === 1");
-    assert_eq!(
-        s(&work[0]["change"]),
-        change,
-        "the change id survived the round trip"
-    );
-    let mut paths = strings(&work[0]["paths"]);
-    paths.sort();
-    assert_eq!(paths, ["answer.js", "test/answer.sh"]);
-    assert_eq!(work[0]["wc"], true, "@ is back on the change");
+    assert_eq!(work.len(), 1, "finalMutableCount === 1: the probe is gone");
+    assert_eq!(s(&work[0]["change"]), change, "the change id survived");
+    assert_eq!(s(&work[0]["id"]), green, "the change was never rewritten");
 
-    // Green: the folded change passes.
-    let green = post(
+    // Green: the change itself passes.
+    let verified = post(
         &mut app.borrow_mut(),
         "/api/jjr/verify",
         json!({ "range": change }),
     )
     .unwrap();
     assert_eq!(
-        green["results"][0]["state"], "green",
+        verified["results"][0]["state"], "green",
         "allCommitsPassTests === true ({})",
-        green["results"][0]["output"]
+        verified["results"][0]["output"]
     );
 }
 
