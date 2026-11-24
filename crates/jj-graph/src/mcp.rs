@@ -1212,6 +1212,14 @@ impl McpServer {
                 self.call_tool(name, &args)
                     .ok_or_else(|| (-32602, format!("Unknown tool: {name}")))
             }
+            // Not a tool: the full state the web UI draws, graph, jjr reading
+            // and this server's plan included, for a client that shows the
+            // agent's work to its user (the OpenCode plugin's views).
+            "jj-graph/state" => {
+                let revset = params["revset"].as_str();
+                self.get("/api/state", &[("revset", revset)])
+                    .map_err(|err| (-32000, err.message))
+            }
             other => Err((-32601, format!("Method not found: {other}"))),
         }
     }

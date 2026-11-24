@@ -134,6 +134,8 @@ fn the_protocol_initialize_ping_tools_list_and_errors() {
     ] {
         assert!(names.contains(&n), "lists {n}");
     }
+    // The state request is for clients, not a tool the model sees.
+    assert!(!names.iter().any(|n| n.contains("state")));
     for t in tools {
         assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
         assert!(t["description"].as_str().unwrap().len() > 20);
@@ -264,6 +266,39 @@ fn an_agent_previews_a_plan_applies_it_and_restores() {
     assert!(text.contains("DRY RUN: 2 step(s)"), "{text}");
     let (text, _) = call(&mut server, "plan_undo", json!({ "count": 1 }));
     assert!(text.contains("DRY RUN: 1 step(s)"), "{text}");
+
+    // A client reads the same plan, with the graph it leaves, as data.
+    let state = rpc(&mut server, "jj-graph/state", json!({ "revset": "all()" }));
+    let state = state.get("result").unwrap_or_else(|| panic!("{state}"));
+    assert_eq!(state["revset"], "all()");
+    assert_eq!(state["dry"]["active"], true);
+    assert_eq!(state["dry"]["steps"].as_array().unwrap().len(), 1);
+    assert!(
+        state["dry"]["steps"][0]["label"]
+            .as_str()
+            .unwrap()
+            .starts_with("jj rebase"),
+        "{state}"
+    );
+    assert_eq!(state["dry"]["redo"].as_array().unwrap().len(), 1);
+    assert!(
+        state["touched"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t.as_str().is_some_and(|t| t.starts_with(&b)))
+    );
+    assert!(
+        state["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["wc"] == true)
+    );
+    assert!(state["jjr"]["summary"].is_object());
+    // A bad revset is an error response, not a tool result.
+    let bad = rpc(&mut server, "jj-graph/state", json!({ "revset": "nope((" }));
+    assert_eq!(bad["error"]["code"], -32000, "{bad}");
 
     // Refusals come back as tool errors, and the plan is unchanged.
     let (text, is_error) = call(&mut server, "dry_run", json!({ "args": ["git", "push"] }));
