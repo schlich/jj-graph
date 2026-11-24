@@ -53,6 +53,36 @@
           };
         };
         default = jj-graph;
+
+        # The OpenCode plugin directory, with jj-graph's store path in place of
+        # `jj-graph` on PATH. Link it into ~/.config/opencode/plugins/jj-graph,
+        # or list its path under `plugins` in opencode.json.
+        opencode-plugin =
+          pkgs.runCommand "jj-graph-opencode-plugin-${version}"
+            {
+              # The plugin's layout.js is a symlink to public/layout.js, which
+              # a fileset cannot hold: copy the file in its place.
+              src = pkgs.lib.fileset.toSource {
+                root = ./.;
+                fileset = pkgs.lib.fileset.unions [
+                  ./public/layout.js
+                  (pkgs.lib.fileset.fileFilter (f: f.hasExt "ts" || f.hasExt "tsx") ./.opencode/plugins/jj-graph)
+                ];
+              };
+              nativeBuildInputs = [ pkgs.bun ];
+              meta.description = "OpenCode plugin for jj-graph: its tools, and the jj graph in the TUI";
+            }
+            ''
+              cp -r $src/.opencode/plugins/jj-graph plugin
+              chmod -R u+w plugin
+              cp $src/public/layout.js plugin/layout.js
+              (cd plugin && HOME=$TMPDIR bun test model.test.ts)
+              mkdir -p $out
+              cp plugin/index.ts plugin/engine.ts plugin/model.ts plugin/rpc.ts plugin/tui.tsx plugin/layout.js $out/
+              substituteInPlace $out/index.ts \
+                --replace-fail 'const DEFAULT_COMMAND = "jj-graph"' \
+                               'const DEFAULT_COMMAND = "${pkgs.lib.getExe jj-graph}"'
+            '';
       });
 
       apps = forAllSystems (pkgs: {
@@ -80,10 +110,11 @@
         };
       });
 
-      # `nix flake check` builds jj-graph with its full test suite and runs
-      # the web UI's layout tests.
+      # `nix flake check` builds jj-graph with its full test suite and the
+      # OpenCode plugin, and runs the web UI's layout tests.
       checks = forAllSystems (pkgs: {
         jj-graph = self.packages.${pkgs.stdenv.hostPlatform.system}.jj-graph;
+        opencode-plugin = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-plugin;
         web = pkgs.runCommand "jj-graph-web-tests" {
           src = pkgs.lib.fileset.toSource {
             root = ./.;

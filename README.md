@@ -137,6 +137,71 @@ import/export are exactly jj's.
 
 ## Use it from an agent
 
+### OpenCode
+
+The OpenCode 2 plugin in `.opencode/plugins/jj-graph` gives the agent the
+tools below and shows you what it is doing with them. In every directory
+inside a jj repository it runs one `jj-graph mcp` process, registers its
+tools as native OpenCode tools (`jj-graph_dry_run`, ...), and publishes the
+graph that process sees, jjr's reading of it and the agent's dry-run plan
+to OpenCode's front ends:
+
+- **TUI**: a *jj graph* section in the session sidebar (the working copy,
+  the stack, the plan, jjr's verdict) and an item in the home footer.
+  `ctrl+x j` (`<leader>j`) or `/jj-graph` opens the jj graph panel beside
+  the session: the graph with `jj log`'s lanes, the plan step by step with
+  each step's output, jjr's diagnostics with their fixes, and the operation
+  log. Its bottom line names the mode (`NORMAL`, `DETAIL`, or `PROMPT`
+  while it is unfocused) and every key that works in it: `j`/`k` move,
+  `h`/`l` or `1`–`4` switch section, `⏎` shows details, `y` copies the
+  change id, step, fix or operation, `r` re-reads, `f` goes full screen,
+  `esc` goes back or closes.
+
+The views follow the repository live: after every jj-graph tool call, after
+any other tool (an edit, a shell), and whenever jj records an operation,
+the jj you run in a terminal included. Outside a jj repository the plugin
+does nothing, so it is safe to install for every project. OpenCode loads it
+by itself in this checkout. Others reach the same state through the
+`jj-graph` RPC (`rpc.ts`): a `state` method and a `changed` event.
+
+Elsewhere, install it globally by linking the directory into
+`~/.config/opencode/plugins/jj-graph`, or list it in `opencode.json`. The
+flake's `opencode-plugin` package is the plugin with this flake's
+`jj-graph` baked in, so it needs nothing on PATH:
+
+```sh
+nix build github:schlich/jj-graph#opencode-plugin -o ~/.config/opencode/plugins/jj-graph
+```
+
+Used from a checkout instead, the plugin runs `jj-graph` from PATH. Make
+sure that is this program (another project ships a `jj-graph` without an
+`mcp` command), or name the binary with the `command` option:
+
+```json
+{
+  "plugins": [
+    {
+      "package": "/absolute/path/to/jj-graph/.opencode/plugins/jj-graph",
+      "options": { "command": "/absolute/path/to/jj-graph", "verifyCommand": "cargo test" }
+    }
+  ]
+}
+```
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `command` | `jj-graph` (the Nix package: its own store path) | The jj-graph executable |
+| `verifyCommand` | none | Passed as `--verify-command`, which `verify_stack` runs in each revision |
+| `codemode` | OpenCode's default (`true`) | Expose the tools through Code Mode |
+
+The tools ask the same permissions as an MCP server's would
+(`jj-graph_dry_run`, ...), so existing permission rules still apply. When
+your configuration already has an `mcp.servers.jj-graph` entry, that server
+keeps the tools; the views then show the repository but not the agent's
+plan, which lives in that server's process.
+
+### Other MCP clients
+
 `jj-graph mcp` serves the same engine to an AI agent over the
 [Model Context Protocol](https://modelcontextprotocol.io), on stdin and
 stdout. The agent previews jj commands with `dry_run`, reads the graph each
