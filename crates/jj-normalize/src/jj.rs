@@ -11,7 +11,7 @@ use serde::Deserialize;
 /// Enough context lines that every hunk covers its whole file.
 const WHOLE_FILE: &str = "1000000000";
 
-/// One commit, as jj-graph reads it.
+/// One commit, as jj-normalize reads it.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Commit {
     pub change_id: String,
@@ -58,9 +58,9 @@ pub struct Jj {
 }
 
 impl Jj {
-    /// The workspace containing `dir`. `JJ_GRAPH_JJ` names another `jj`.
+    /// The workspace containing `dir`. `JJ_NORMALIZE_JJ` names another `jj`.
     pub fn discover(dir: &Path) -> Result<Jj> {
-        let program = std::env::var_os("JJ_GRAPH_JJ").unwrap_or_else(|| "jj".into());
+        let program = std::env::var_os("JJ_NORMALIZE_JJ").unwrap_or_else(|| "jj".into());
         let out = Command::new(&program)
             .current_dir(dir)
             .args([
@@ -369,15 +369,15 @@ pub fn toml_string(s: &str) -> String {
     out
 }
 
-/// The name jj-graph registers mergiraf under as a merge tool, so a
+/// The name jj-normalize registers mergiraf under as a merge tool, so a
 /// `merge-tools.mergiraf` of the user's own cannot change how it runs.
-pub const MERGIRAF_TOOL: &str = "jj-graph-mergiraf";
+pub const MERGIRAF_TOOL: &str = "jj-normalize-mergiraf";
 
 /// The environment variable naming the mergiraf program; `mergiraf` on the
 /// path otherwise.
-pub const MERGIRAF_VARIABLE: &str = "JJ_GRAPH_MERGIRAF";
+pub const MERGIRAF_VARIABLE: &str = "JJ_NORMALIZE_MERGIRAF";
 
-/// The mergiraf program jj-graph runs.
+/// The mergiraf program jj-normalize runs.
 pub fn mergiraf_program() -> OsString {
     std::env::var_os(MERGIRAF_VARIABLE).unwrap_or_else(|| "mergiraf".into())
 }

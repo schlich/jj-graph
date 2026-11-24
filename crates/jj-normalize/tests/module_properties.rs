@@ -8,13 +8,13 @@ use std::process::Command;
 
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
-use jj_graph::diff::{FileDiff, added_lines, parse_git_diff, patch_signature};
-use jj_graph::dot::{self, Diagram};
-use jj_graph::extract::{Kind, Lang, file_symbols, has_syntax_errors, parse};
-use jj_graph::graph::{Change, Graph, Id};
-use jj_graph::hoist::{contract_part, cosmetic_part};
-use jj_graph::shapes::leaks;
-use jj_graph::skeleton;
+use jj_normalize::diff::{FileDiff, added_lines, parse_git_diff, patch_signature};
+use jj_normalize::dot::{self, Diagram};
+use jj_normalize::extract::{Kind, Lang, file_symbols, has_syntax_errors, parse};
+use jj_normalize::graph::{Change, Graph, Id};
+use jj_normalize::hoist::{contract_part, cosmetic_part};
+use jj_normalize::shapes::leaks;
+use jj_normalize::skeleton;
 
 fn set<T: Ord>(items: impl IntoIterator<Item = T>) -> BTreeSet<T> {
     items.into_iter().collect()
@@ -517,7 +517,7 @@ fn a_purely_cosmetic_change_moves_whole(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 100)]
-fn files_jj_graph_cannot_read_stay_with_the_change(tc: TestCase) {
+fn files_jj_normalize_cannot_read_stay_with_the_change(tc: TestCase) {
     let (old, new) = (tc.draw(texts()), tc.draw(texts()));
     assert_eq!(
         contract_part("notes.md", Some(&old), Some(&new)).as_deref(),
@@ -737,11 +737,11 @@ fn gherkin_text(f: &FeatureDraft, noise: bool) -> String {
     out
 }
 
-fn read_drafts(drafts: &[FeatureDraft], noise: bool) -> Vec<jj_graph::gherkin::FeatureSpec> {
+fn read_drafts(drafts: &[FeatureDraft], noise: bool) -> Vec<jj_normalize::gherkin::FeatureSpec> {
     drafts
         .iter()
         .map(|f| {
-            jj_graph::gherkin::read_feature(
+            jj_normalize::gherkin::read_feature(
                 &format!("features/{}.feature", f.slug),
                 &gherkin_text(f, noise),
             )

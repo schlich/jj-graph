@@ -512,7 +512,7 @@ impl Graph {
         out
     }
 
-    /// Everything `jj-graph check` reports about the graph's shape.
+    /// Everything `jj-normalize check` reports about the graph's shape.
     pub fn check(&self) -> Check {
         Check {
             cycle: self.cycle_members(),

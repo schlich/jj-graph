@@ -786,7 +786,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "jj-graph"
+name = "jj-normalize"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -369,7 +369,7 @@ pub fn materialize(jj: &Jj, s: &Skeleton, onto: &str, apply: bool) -> Result<Vec
     if apply && op != op0 {
         if jj.head_op()? != op0 {
             bail!(
-                "the repository changed while jj-graph was creating the skeleton; nothing was applied"
+                "the repository changed while jj-normalize was creating the skeleton; nothing was applied"
             );
         }
         jj.integrate(&op)?;

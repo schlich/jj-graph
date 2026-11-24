@@ -16,11 +16,11 @@ use crate::jj::{Jj, change, changes, check_mergiraf, commit, mergiraf_resolve, t
 use crate::load::{Loaded, Scope, load, short};
 use crate::plan::{Step, plan, topological_order};
 
-/// The name jj-graph registers itself under as a diff editor.
-pub const SPLIT_TOOL: &str = "jj-graph-split";
+/// The name jj-normalize registers itself under as a diff editor.
+pub const SPLIT_TOOL: &str = "jj-normalize-split";
 
 /// The environment variable that names the file holding a split's plan.
-pub const PLAN_VARIABLE: &str = "JJ_GRAPH_SPLIT_PLAN";
+pub const PLAN_VARIABLE: &str = "JJ_NORMALIZE_SPLIT_PLAN";
 
 /// Move `split`'s part of change `v` into a new change inserted before it,
 /// on the detached chain ending at `op`, and return the new change; None
@@ -329,7 +329,7 @@ pub fn normalize(jj: &Jj, opts: &Options) -> Result<Outcome> {
     verify(jj, &op, &outcome)?;
 
     if jj.head_op()? != op0 {
-        bail!("the repository changed while jj-graph was planning; nothing was applied");
+        bail!("the repository changed while jj-normalize was planning; nothing was applied");
     }
     jj.integrate(&op)?;
     // An operation that raced the head check merged with ours; if that made
@@ -341,7 +341,7 @@ pub fn normalize(jj: &Jj, opts: &Options) -> Result<Outcome> {
             jj.revert(o)?;
         }
         bail!(
-            "another operation raced jj-graph's and left changes divergent; jj-graph reverted its own"
+            "another operation raced jj-normalize's and left changes divergent; jj-normalize reverted its own"
         );
     }
     // This workspace's working copy may have been rewritten with the same
@@ -595,7 +595,7 @@ fn merged_edit(jj: &Jj, op: &str, o: &Outcome, v: &str) -> Result<Vec<FileDiff>>
     if parents.len() < 2 {
         return parse_git_diff(&jj.whole_diff(op, &change(v))?);
     }
-    let mark = format!("jj-graph merges the parents of {v}");
+    let mark = format!("jj-normalize merges the parents of {v}");
     let mut args = vec![
         "new".to_owned(),
         "--no-edit".into(),

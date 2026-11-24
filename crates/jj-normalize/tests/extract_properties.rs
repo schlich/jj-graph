@@ -1,4 +1,4 @@
-//! What a change defines, across the languages jj-graph reads: files made
+//! What a change defines, across the languages jj-normalize reads: files made
 //! of item templates, edited the ways a change edits them.
 
 mod common;
@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use common::{Drawn, LANGUAGES, Language, file, files};
 use hegel::TestCase;
 use hegel::generators as gs;
-use jj_graph::diff::FileDiff;
-use jj_graph::extract::{
+use jj_normalize::diff::FileDiff;
+use jj_normalize::extract::{
     Lang, Piece, Symbols, file_symbols, has_syntax_errors, parse, piece_edit, pieces,
 };
 

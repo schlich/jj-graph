@@ -1,4 +1,4 @@
-//! Files in every language jj-graph reads, made of item templates.
+//! Files in every language jj-normalize reads, made of item templates.
 
 #![allow(dead_code)]
 

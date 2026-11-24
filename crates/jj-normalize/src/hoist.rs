@@ -1,7 +1,7 @@
 //! Splitting a change: moving part of it into a new change before it.
 //!
-//! jj-graph is its own diff editor here. `jj squash --from v -B v --tool
-//! jj-graph-split` gives it the change's parent tree (`$left`) and the
+//! jj-normalize is its own diff editor here. `jj squash --from v -B v --tool
+//! jj-normalize-split` gives it the change's parent tree (`$left`) and the
 //! change's tree (`$right`); whatever it leaves in `$right` moves into the
 //! new change, and the rest stays in `v`, whose tree does not change. What
 //! it leaves there is a [`Plan`] made from v's diff beforehand: the files
@@ -27,7 +27,7 @@
 //!
 //! A part must parse, and must hold exactly what it meant to move, or its
 //! file moves nothing. Renamed, copied, and binary files never move
-//! anything, and neither do files in languages jj-graph cannot read.
+//! anything, and neither do files in languages jj-normalize cannot read.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

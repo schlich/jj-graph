@@ -1,5 +1,5 @@
 [package]
-name = "jj-graph"
+name = "jj-normalize"
 version = "0.1.0"
 edition = "2024"
 description = "Plan, check, and normalize Jujutsu change graphs against the code's dependency graph"
@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 
 [[bin]]
-name = "jj-graph"
+name = "jj-normalize"
 path = "src/main.rs"
 
 [dependencies]

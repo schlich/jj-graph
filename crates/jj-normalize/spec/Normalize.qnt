@@ -1,4 +1,4 @@
-// The normal form of a Jujutsu change graph, as jj-graph computes it.
+// The normal form of a Jujutsu change graph, as jj-normalize computes it.
 //
 // "Architectural Graph Engineering in Jujutsu" asks for a change graph that
 // mirrors the code's dependency graph: every change descends from the changes
@@ -7,7 +7,7 @@
 // each change's definitions and references, hoist contracts out of mixed
 // changes, sink changes below parents they do not use, and reduce redundant
 // parents. This module states the target the crawler should reach as a pure
-// function, the way jj-graph computes it, and checks the properties the
+// function, the way jj-normalize computes it, and checks the properties the
 // document promises of it.
 //
 // Three things the document's rules leave out decide whether a rewrite is
@@ -17,7 +17,7 @@
 //   off the other can conflict, or change what either one's diff does. A
 //   change keeps every original ancestor it shares a file with, unless their
 //   diffs commute, and every one that defines a symbol it also defines.
-//   Whether two diffs commute is an input, `commutes`, which jj-graph
+//   Whether two diffs commute is an input, `commutes`, which jj-normalize
 //   computes once per load by asking jj itself: on an operation nobody sees,
 //   it rebases each change past the other, and they commute only if neither
 //   conflicts, each keeps its own patch, and the pair ends on the tree it
@@ -43,7 +43,7 @@
 // docSinkDropsADescendantsDependencyTest). A crawler that only adds, drops,
 // and sinks edges can also stop short: in a chain u -> v -> w where w needs
 // both u and v but v does not need u, no single move is both safe and
-// progressive (see crawlerStopsShortTest). jj-graph therefore computes the
+// progressive (see crawlerStopsShortTest). jj-normalize therefore computes the
 // normal form directly and executes it as a plan.
 //
 // The plan sets each change's parents with `jj rebase -s v -o P...`, which
@@ -208,7 +208,7 @@ module Normalize {
   // every original ancestor is not enough to keep an anchor's tree: when an
   // ancestor references a change outside the anchor's lineage, soundness
   // puts that change below the ancestor, and so below the anchor, whose
-  // files change. No valid graph avoids it, so jj-graph refuses unless told
+  // files change. No valid graph avoids it, so jj-normalize refuses unless told
   // to let those trees change.
   pure def anchorGrowth(g: Graph): Set[(str, str)] = {
     val before = ancestry(g)
@@ -219,7 +219,7 @@ module Normalize {
   }
 
   // ---------------------------------------------------------------------
-  // Checks (what `jj-graph check` reports)
+  // Checks (what `jj-normalize check` reports)
   // ---------------------------------------------------------------------
 
   // A requirement the graph does not satisfy: v references what u defines,
@@ -559,7 +559,7 @@ module Normalize {
   // original change's ancestors, and never makes a normalizable graph
   // unnormalizable, except by forgetting what commuted with a change it
   // splits: a pair that commuted whole may not once split, and the cycle
-  // that leaves makes jj-graph refuse before anything changes.
+  // that leaves makes jj-normalize refuse before anything changes.
   val HoistingSplitsEveryMixedChange = hoisted.scope.forall(v => not(hoistable(hoisted.info.get(v))))
   val HoistingKeepsAncestors = and {
     isAcyclic(hoisted),
@@ -889,7 +889,7 @@ module NormalizeExamples {
     normalParents(stuck) == Map("a" -> Set("trunk"), "b" -> Set("trunk"), "c" -> Set("a", "b")),
   })
 
-  // jj-graph's plan, `jj rebase -s` in a topological order of the normal
+  // jj-normalize's plan, `jj rebase -s` in a topological order of the normal
   // form, reaches it from the same stack.
   run planReachesNormalFormTest = {
     val n = normalParents(stuck)

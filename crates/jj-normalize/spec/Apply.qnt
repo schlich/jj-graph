@@ -1,6 +1,6 @@
 // Applying a plan as one operation, so no workspace ever sees half of it.
 //
-// jj-graph runs each plan command on the operation the previous command
+// jj-normalize runs each plan command on the operation the previous command
 // produced, with `--at-op` and `--no-integrate-operation`, so the commands
 // build a detached chain of operations that nothing else sees. With
 // `--mergiraf`, the commands after the rebases resolve conflicts with
@@ -16,7 +16,7 @@
 //
 // A foreign operation can still land between the head check and the
 // integration. `jj op integrate` then merges the two operations instead of
-// losing either; if the merge left a change divergent, jj-graph reverts its
+// losing either; if the merge left a change divergent, jj-normalize reverts its
 // own operation with `jj op revert`, which keeps the foreign one. It never
 // uses `jj op restore`, which would also rewind the foreign operation.
 module Apply {
@@ -33,7 +33,7 @@ module Apply {
     | Abandoned
 
   // The operations the repository shows, oldest first: "plan" is
-  // jj-graph's integrated chain, "revert" its revert, "foreign" anyone else's.
+  // jj-normalize's integrated chain, "revert" its revert, "foreign" anyone else's.
   var visible: List[str]
   // Commands run on the detached chain, and whether every one succeeded.
   var chain: int
@@ -126,7 +126,7 @@ module Apply {
     }
   }
 
-  // After integrating, jj-graph looks for divergent changes and reverts its
+  // After integrating, jj-normalize looks for divergent changes and reverts its
   // own operation if there are any.
   action revert = all {
     phase == Integrated,
@@ -180,7 +180,7 @@ module Apply {
   // Foreign operations are never lost: every one stays visible.
   val ForeignWorkKept = count(visible, "foreign") == foreignCount
   // A plan integrated with no foreign operation racing it cannot diverge;
-  // one that did is reverted before jj-graph finishes.
+  // one that did is reverted before jj-normalize finishes.
   val DivergenceOnlyFromRace = divergent implies visible.length() > headAt + 1
   val RevertOnlyOwnPlan = count(visible, "revert") <= count(visible, "plan")
 
@@ -193,7 +193,7 @@ module Apply {
     RevertOnlyOwnPlan,
   }
 
-  // Liveness: with fair scheduling of jj-graph's own steps, every run
+  // Liveness: with fair scheduling of jj-normalize's own steps, every run
   // settles, and a divergent integration is always reverted.
   temporal Settles = (
     weakFair(runCommand, (visible, chain, commandsOk, checkOk, headAt, divergent, phase, foreignCount))

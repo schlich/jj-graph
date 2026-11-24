@@ -26,7 +26,7 @@ pub struct Run {
 }
 
 /// Run `argv` in the tree of each change, in topological order. The command
-/// sees `JJ_GRAPH_CHANGE` and `JJ_GRAPH_COMMIT`.
+/// sees `JJ_NORMALIZE_CHANGE` and `JJ_NORMALIZE_COMMIT`.
 pub fn run_at(
     jj: &Jj,
     loaded: &Loaded,
@@ -54,8 +54,8 @@ pub fn run_at(
         let result = Command::new(program)
             .args(args)
             .current_dir(dir.path())
-            .env("JJ_GRAPH_CHANGE", v)
-            .env("JJ_GRAPH_COMMIT", &c.commit_id)
+            .env("JJ_NORMALIZE_CHANGE", v)
+            .env("JJ_NORMALIZE_COMMIT", &c.commit_id)
             .output()
             .with_context(|| format!("running {program}"))?;
         let mut output = String::from_utf8_lossy(&result.stdout).into_owned();

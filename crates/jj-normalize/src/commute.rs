@@ -2,7 +2,7 @@
 //! jj itself.
 //!
 //! For each pair whose order only a shared file keeps
-//! (`Graph::commutation_candidates`), jj-graph moves the earlier change `u`
+//! (`Graph::commutation_candidates`), jj-normalize moves the earlier change `u`
 //! past the later one `v` on an operation it never integrates:
 //! `jj rebase -r u -A v`, so `v` and the changes between them go on without
 //! `u`, and `u` goes on top of `v`. The pair commutes when none of them
@@ -239,7 +239,7 @@ fn line_edit(f: &FileDiff) -> Vec<String> {
 }
 
 /// Whether two versions of a change make the same edit: in each file, the
-/// same lines removed and added, or, in a file jj-graph can read, the same
+/// same lines removed and added, or, in a file jj-normalize can read, the same
 /// pieces removed and added, whatever their order or layout. A file only
 /// one of them touches must keep its pieces, moved or reformatted at most.
 pub fn same_edit(was: &[FileDiff], is: &[FileDiff]) -> bool {

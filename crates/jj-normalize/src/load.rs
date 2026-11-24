@@ -54,7 +54,7 @@ pub fn load(jj: &Jj, op: &str, scope: &Scope) -> Result<Loaded> {
     for c in found {
         if c.immutable {
             bail!(
-                "{} is immutable; jj-graph only rewrites mutable changes ({})",
+                "{} is immutable; jj-normalize only rewrites mutable changes ({})",
                 short(&c.change_id),
                 first_line(&c)
             );

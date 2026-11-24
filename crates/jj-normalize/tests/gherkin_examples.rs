@@ -3,9 +3,9 @@
 
 use std::collections::BTreeSet;
 
-use jj_graph::dot;
-use jj_graph::gherkin::read_feature;
-use jj_graph::skeleton::{Kind, plan, scenario_node, spec_node};
+use jj_normalize::dot;
+use jj_normalize::gherkin::read_feature;
+use jj_normalize::skeleton::{Kind, plan, scenario_node, spec_node};
 
 const LOGIN: &str = r#"# The login flow, end to end.
 @needs:engine

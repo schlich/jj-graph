@@ -1,4 +1,4 @@
-//! jj-graph: plan, check, and normalize Jujutsu change graphs against the
+//! jj-normalize: plan, check, and normalize Jujutsu change graphs against the
 //! code's dependency graph.
 //!
 //! `graph` and `plan` are the pure core that `spec/Normalize.qnt` specifies.

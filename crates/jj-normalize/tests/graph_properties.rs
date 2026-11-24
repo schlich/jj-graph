@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use jj_graph::graph::{Change, Graph, Id, Reason, rebase_revision};
-use jj_graph::plan::{normalize, plan, simulate};
+use jj_normalize::graph::{Change, Graph, Id, Reason, rebase_revision};
+use jj_normalize::plan::{normalize, plan, simulate};
 
 const SYMBOLS: [&str; 6] = ["Store", "Net", "Codec", "db", "client", "run"];
 const CONTRACTS: [&str; 3] = ["Store", "Net", "Codec"];

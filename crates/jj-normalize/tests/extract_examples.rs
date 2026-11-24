@@ -2,8 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use jj_graph::diff::FileDiff;
-use jj_graph::extract::{Kind, Lang, file_symbols, parse};
+use jj_normalize::diff::FileDiff;
+use jj_normalize::extract::{Kind, Lang, file_symbols, parse};
 
 fn items(lang: Lang, text: &str) -> BTreeSet<(String, Kind, bool)> {
     parse(lang, text)

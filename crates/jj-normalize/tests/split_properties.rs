@@ -1,4 +1,4 @@
-//! Splitting a change, across the languages jj-graph reads: a part parses,
+//! Splitting a change, across the languages jj-normalize reads: a part parses,
 //! moves exactly what it is meant to, and leaves nothing it could move
 //! behind; the diff editor lays out a plan, symlinks and permissions kept.
 
@@ -9,9 +9,9 @@ use std::collections::BTreeSet;
 use common::{Drawn, LANGUAGES, Language, file, files};
 use hegel::TestCase;
 use hegel::generators as gs;
-use jj_graph::diff::FileDiff;
-use jj_graph::extract::{Kind, Lang, Symbols, file_symbols, has_syntax_errors, parse};
-use jj_graph::hoist::{Plan, apply_plan, contract_part, cosmetic_part};
+use jj_normalize::diff::FileDiff;
+use jj_normalize::extract::{Kind, Lang, Symbols, file_symbols, has_syntax_errors, parse};
+use jj_normalize::hoist::{Plan, apply_plan, contract_part, cosmetic_part};
 
 fn symbols(path: &str, old: &str, new: &str) -> Symbols {
     file_symbols(&FileDiff {
@@ -303,14 +303,14 @@ fn a_new_rust_module_moves_with_its_declaration() {
         diff("src/store.rs", None, store),
         diff("src/lib.rs", Some(lib_old), lib_new),
     ];
-    let plan = jj_graph::hoist::plan(&files, jj_graph::hoist::Split::Contracts);
+    let plan = jj_normalize::hoist::plan(&files, jj_normalize::hoist::Split::Contracts);
     assert!(
         plan["src/store.rs"].contains("pub trait Storage"),
         "{plan:?}"
     );
     assert!(!plan["src/store.rs"].contains("impl Storage"), "{plan:?}");
     assert_eq!(plan["src/lib.rs"], "mod store;\n\npub fn run() {}\n");
-    let s = jj_graph::extract::change_symbols(&files);
+    let s = jj_normalize::extract::change_symbols(&files);
     assert_eq!(
         s.cfiles,
         BTreeSet::from(["src/lib.rs".to_owned(), "src/store.rs".to_owned()])
@@ -320,7 +320,7 @@ fn a_new_rust_module_moves_with_its_declaration() {
         diff("src/store.rs", None, store),
         diff("src/lib.rs", None, lib_new),
     ];
-    let plan = jj_graph::hoist::plan(&files, jj_graph::hoist::Split::Contracts);
+    let plan = jj_normalize::hoist::plan(&files, jj_normalize::hoist::Split::Contracts);
     assert!(!plan.contains_key("src/store.rs"), "{plan:?}");
 }
 

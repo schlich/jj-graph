@@ -30,7 +30,7 @@ use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator}
 
 use crate::diff::{FileDiff, added_lines};
 
-/// A language jj-graph can read definitions from.
+/// A language jj-normalize can read definitions from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Lang {
     Rust,
@@ -1366,7 +1366,7 @@ fn go_bindings(node: Node, text: &str) -> Vec<Binding> {
 pub(crate) use nix::{attr_names as nix_attr_names, root_set as nix_root_set};
 
 mod nix {
-    //! Nix has no item syntax, so jj-graph walks the module's attribute
+    //! Nix has no item syntax, so jj-normalize walks the module's attribute
     //! sets: a binding under `options` declares an option (a contract), any
     //! other binding of the module's attribute set sets a value (an
     //! implementation). References are variables, and selections from

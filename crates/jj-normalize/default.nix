@@ -1,7 +1,6 @@
-# jj-graph: the package, whose build runs its lints and tests, and the model
+# jj-normalize: the package, whose build runs its lints and tests, and the model
 # checks of its Quint specifications. Each sees only the files it needs, so
 # an edit elsewhere in the repository rebuilds none of them.
-# nixpkgs-watch: not a workaround: this repository's own tool.
 { lib, pkgs }:
 
 let
@@ -63,7 +62,7 @@ let
 in
 {
   package = pkgs.rustPlatform.buildRustPackage {
-    pname = "jj-graph";
+    pname = "jj-normalize";
     version = (lib.importTOML ./Cargo.toml).package.version;
     src = source [
       ./Cargo.toml
@@ -75,11 +74,11 @@ in
     cargoLock.lockFile = ./Cargo.lock;
 
     # `--mergiraf` runs mergiraf (GPL-3.0) as jj's external merge tool, so
-    # the wrapper names nixpkgs' copy; jj-graph never links it.
+    # the wrapper names nixpkgs' copy; jj-normalize never links it.
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postInstall = ''
-      wrapProgram "$out/bin/jj-graph" \
-        --set-default JJ_GRAPH_MERGIRAF ${pkgs.mergiraf}/bin/mergiraf
+      wrapProgram "$out/bin/jj-normalize" \
+        --set-default JJ_NORMALIZE_MERGIRAF ${pkgs.mergiraf}/bin/mergiraf
     '';
 
     # The end-to-end properties drive real jj repositories, the conformance
@@ -110,8 +109,8 @@ in
     meta = {
       description = "Plan, check, and normalize Jujutsu change graphs against the code's dependency graph";
       license = lib.licenses.mit;
-      mainProgram = "jj-graph";
-      platforms = [ "x86_64-linux" ];
+      mainProgram = "jj-normalize";
+      platforms = lib.platforms.linux;
     };
   };
 
@@ -119,7 +118,7 @@ in
   # witnesses, and TLC's exhaustive check of the apply protocol and the
   # skeleton.
   model =
-    pkgs.runCommand "jj-graph-model"
+    pkgs.runCommand "jj-normalize-model"
       {
         src = source [ ./spec ];
         nativeBuildInputs = modelTools;
@@ -140,7 +139,7 @@ in
   # file, and every order of the plan: about twelve minutes, so it reports
   # after a push instead of gating a landing.
   exhaustive =
-    pkgs.runCommand "jj-graph-model-exhaustive"
+    pkgs.runCommand "jj-normalize-model-exhaustive"
       {
         src = source [ ./spec ];
         nativeBuildInputs = modelTools;

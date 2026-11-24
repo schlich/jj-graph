@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use jj_graph::dot;
+use jj_normalize::dot;
 
 fn edges(pairs: &[(&str, &str)]) -> BTreeSet<(String, String)> {
     pairs
@@ -97,7 +97,7 @@ fn fields(line: &str) -> Vec<(String, bool)> {
 /// What Graphviz shows for a label value plain output reports, as
 /// `make_simple_label` in Graphviz's lib/common/labels.c draws it: `\n`,
 /// `\l`, and `\r` break lines, any other `\` shows the character after it,
-/// and a trailing `\` shows nothing. jj-graph then trims each line, and a
+/// and a trailing `\` shows nothing. jj-normalize then trims each line, and a
 /// label without text stands for the node's ID.
 fn shown_by_graphviz(value: &str, id: &str) -> String {
     let mut out = String::new();
@@ -126,8 +126,19 @@ fn shown_by_graphviz(value: &str, id: &str) -> String {
     }
 }
 
-/// Graphviz's reading of `text`, or its complaint.
-fn graphviz(text: &str) -> Result<Plain, String> {
+/// What Graphviz made of a text.
+enum Verdict {
+    Read(Plain),
+    /// `dot` exited with an error: it refused the text.
+    Refused(String),
+    /// `dot` died from a signal, so it gave no verdict. Graphviz 15.1.1
+    /// segfaults laying out some texts it reads (a `"\n"` label on a node
+    /// with ports inside a cluster), a crash of its layout, not its reading.
+    Crashed(String),
+}
+
+/// Graphviz's reading of `text`, its complaint, or its crash.
+fn graphviz(text: &str) -> Verdict {
     let mut child = Command::new("dot")
         .arg("-Tplain")
         .stdin(Stdio::piped())
@@ -142,8 +153,12 @@ fn graphviz(text: &str) -> Result<Plain, String> {
         .write_all(text.as_bytes())
         .expect("writing to dot");
     let out = child.wait_with_output().expect("dot runs");
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    if out.status.code().is_none() {
+        return Verdict::Crashed(format!("{}\n{stderr}", out.status));
+    }
     if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+        return Verdict::Refused(stderr);
     }
     let mut plain = Plain::default();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
@@ -164,19 +179,26 @@ fn graphviz(text: &str) -> Result<Plain, String> {
             _ => {}
         }
     }
-    Ok(plain)
+    Verdict::Read(plain)
 }
 
-/// Read `text` with jj-graph and with Graphviz, check that they agree, and
-/// say how it went. jj-graph refuses a self-loop, which Graphviz draws.
+/// What `agrees` says when Graphviz crashed and so could not judge a text.
+const NO_VERDICT: &str = "Graphviz crashed";
+
+/// Read `text` with jj-normalize and with Graphviz, check that they agree, and
+/// say how it went. jj-normalize refuses a self-loop, which Graphviz draws.
 fn agrees(text: &str) -> &'static str {
     let ours = dot::parse(text);
     let theirs = match graphviz(text) {
-        Ok(theirs) => theirs,
-        Err(e) => {
+        Verdict::Read(theirs) => theirs,
+        Verdict::Crashed(e) => {
+            eprintln!("{NO_VERDICT} on this, so it judged nothing:\n{text}\n{e}");
+            return NO_VERDICT;
+        }
+        Verdict::Refused(e) => {
             assert!(
                 ours.is_err(),
-                "Graphviz refused this and jj-graph read it:\n{text}\n{e}"
+                "Graphviz refused this and jj-normalize read it:\n{text}\n{e}"
             );
             return "both refused";
         }
@@ -186,12 +208,12 @@ fn agrees(text: &str) -> &'static str {
         Err(e) => {
             assert!(
                 loops && e.to_string().contains("builds on itself"),
-                "jj-graph refused this and Graphviz read it:\n{text}\n{e}"
+                "jj-normalize refused this and Graphviz read it:\n{text}\n{e}"
             );
             "self-loop refused"
         }
         Ok(d) => {
-            assert!(!loops, "jj-graph read a self-loop:\n{text}");
+            assert!(!loops, "jj-normalize read a self-loop:\n{text}");
             assert_eq!(d.order, theirs.order, "node order:\n{text}");
             assert_eq!(d.edges, theirs.edges, "edges:\n{text}");
             for (node, label) in &theirs.labels {
@@ -318,7 +340,7 @@ fn errors_name_their_line() {
 }
 
 #[test]
-fn what_graphviz_refuses_or_jj_graph_cannot_use_is_refused() {
+fn what_graphviz_refuses_or_jj_normalize_cannot_use_is_refused() {
     for text in [
         "digraph { a [label=\"x] }",
         "digraph { a [label=<x] }",
@@ -494,7 +516,19 @@ fn dot_texts(tc: &TestCase) -> String {
 }
 
 #[hegel::test(test_cases = 300)]
-fn jj_graph_reads_dot_as_graphviz_does(tc: TestCase) {
+fn jj_normalize_reads_dot_as_graphviz_does(tc: TestCase) {
     let text = tc.draw(dot_texts());
-    tc.event(agrees(&text));
+    let how = agrees(&text);
+    // A text Graphviz crashed on has no oracle; draw another.
+    tc.assume(how != NO_VERDICT);
+    tc.event(how);
+}
+
+/// The text Hegel found that crashes Graphviz 15.1.1: it gives no verdict,
+/// and that is not counted as a refusal.
+#[test]
+fn a_graphviz_crash_is_no_verdict() {
+    let text = "digraph {\nd:n -> subgraph cluster_t { { b2 [label=\"\\n\"] a:n -> b2:n } -> _c:n } -> d:n }\n";
+    let how = agrees(text);
+    assert!(how == NO_VERDICT || how == "read", "{how}: {text}");
 }

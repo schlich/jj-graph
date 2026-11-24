@@ -10,13 +10,13 @@ use std::process::Command;
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use jj_graph::apply::{Options, Outcome, normalize};
-use jj_graph::commute::{Commutation, How, same_edit};
-use jj_graph::diff::{parse_git_diff, patch_signature};
-use jj_graph::graph::Reason;
-use jj_graph::jj::{Jj, change, commit};
-use jj_graph::load::{Scope, load};
-use jj_graph::{dot, skeleton};
+use jj_normalize::apply::{Options, Outcome, normalize};
+use jj_normalize::commute::{Commutation, How, same_edit};
+use jj_normalize::diff::{parse_git_diff, patch_signature};
+use jj_normalize::graph::Reason;
+use jj_normalize::jj::{Jj, change, commit};
+use jj_normalize::load::{Scope, load};
+use jj_normalize::{dot, skeleton};
 
 const SLOTS: usize = 6;
 
@@ -85,14 +85,14 @@ impl Repo {
             .with_env("JJ_CONFIG", self.config())
     }
 
-    /// The jj-graph binary, as a command in this repository.
-    fn jj_graph(&self, args: &[&str]) -> std::process::Output {
-        Command::new(env!("CARGO_BIN_EXE_jj-graph"))
+    /// The jj-normalize binary, as a command in this repository.
+    fn jj_normalize(&self, args: &[&str]) -> std::process::Output {
+        Command::new(env!("CARGO_BIN_EXE_jj-normalize"))
             .current_dir(self.root())
             .env("JJ_CONFIG", self.config())
             .args(args)
             .output()
-            .expect("jj-graph runs")
+            .expect("jj-normalize runs")
     }
 
     /// A first commit outside the scope, with a file of empty slots that
@@ -122,7 +122,7 @@ fn options(revset: &str, hoist: bool) -> Options {
         scope: scope(revset),
         cosmetic: false,
         hoist,
-        editor: PathBuf::from(env!("CARGO_BIN_EXE_jj-graph")),
+        editor: PathBuf::from(env!("CARGO_BIN_EXE_jj-normalize")),
         allow_new_combinations: false,
         allow_tree_changes: false,
         apply: true,
@@ -304,7 +304,7 @@ fn files_on_disk(r: &Repo) -> Vec<(String, String)> {
     out
 }
 
-/// Check a finished normalization from outside jj-graph's own checks;
+/// Check a finished normalization from outside jj-normalize's own checks;
 /// `opts` are the options it ran with. Without anchor growth the working
 /// copy's files must be exactly `before_files`.
 fn check_outcome(
@@ -463,7 +463,7 @@ fn normalizing_a_story_reaches_a_stable_normal_form_without_changing_any_tree(tc
 
 /// Two branches fill slots of the same file; a change on one calls into
 /// both. Its normal form merges their edits for the first time, which
-/// jj-graph refuses by default; allowed, the merge is clean, and the result
+/// jj-normalize refuses by default; allowed, the merge is clean, and the result
 /// is checked like any other.
 #[test]
 fn a_first_merge_of_one_files_edits_is_refused_unless_allowed() {
@@ -643,7 +643,7 @@ fn overlapping_edits_of_one_file_stay_ordered() {
     );
     // Testing the pair left no operation behind.
     assert_eq!(jj.head_op().unwrap(), before_op);
-    let status = |args: &[&str]| r.jj_graph(args).status.code();
+    let status = |args: &[&str]| r.jj_normalize(args).status.code();
     assert_eq!(status(&["check", "-r", &revset]), Some(0));
 }
 
@@ -726,11 +726,11 @@ fn mergiraf_lets_edits_jj_cannot_merge_commute() {
     // Normalizing again does nothing, and `check` agrees.
     let again = normalize(&jj, &opts).unwrap();
     assert!(again.steps.is_empty() && again.integrated.is_none());
-    let status = |args: &[&str]| r.jj_graph(args).status.code();
+    let status = |args: &[&str]| r.jj_normalize(args).status.code();
     assert_eq!(status(&["check", "-r", &revset, "--mergiraf"]), Some(0));
 }
 
-/// Two changes edit two items of one file, in each language jj-graph reads,
+/// Two changes edit two items of one file, in each language jj-normalize reads,
 /// under a working copy, with or without mergiraf. Whatever jj or mergiraf
 /// decides, the outcome holds from outside: the pair loses its order only
 /// if it commutes, nothing conflicts, the working copy's file is as it was,
@@ -1088,8 +1088,8 @@ const LOGIN_V2: &str = "Feature: Login\n\n  @needs:engine\n  Scenario: Signing i
 /// new scenario, and keeps code written in a scenario's change.
 #[test]
 fn features_become_changes_and_reruns_converge() {
-    use jj_graph::gherkin::read_feature;
-    use jj_graph::skeleton::{Made, materialize, plan, scenario_node, spec_node};
+    use jj_normalize::gherkin::read_feature;
+    use jj_normalize::skeleton::{Made, materialize, plan, scenario_node, spec_node};
     let r = Repo::new();
     let base = r.base();
     r.jj(&["new"]);
@@ -1100,7 +1100,7 @@ fn features_become_changes_and_reruns_converge() {
     .unwrap();
     let jj = r.handle();
     let onto = change(&base);
-    let run = |text: &str| -> (Vec<Made>, jj_graph::gherkin::FeatureSpec) {
+    let run = |text: &str| -> (Vec<Made>, jj_normalize::gherkin::FeatureSpec) {
         let f = read_feature("features/login.feature", text).unwrap();
         let s = plan(&diagram, std::slice::from_ref(&f)).unwrap();
         (materialize(&jj, &s, &onto, true).unwrap(), f)
@@ -1208,9 +1208,9 @@ fn check_exit_status_follows_the_normal_form() {
     // itself does not need `one`.
     r.jj(&["new"]);
     let revset = format!("{}..", change(&base));
-    let status = |args: &[&str]| r.jj_graph(args).status.code();
+    let status = |args: &[&str]| r.jj_normalize(args).status.code();
     assert_eq!(status(&["check", "-r", &revset]), Some(1));
-    let out = r.jj_graph(&["normalize", "-r", &revset]);
+    let out = r.jj_normalize(&["normalize", "-r", &revset]);
     assert!(
         out.status.success(),
         "{}",
@@ -1244,7 +1244,7 @@ fn shapes_run_the_check_in_every_affected_tree() {
     let top = r.current_change();
     let revset = format!("{}..", change(&base));
     let run = |cmd: &str| -> (Option<i32>, serde_json::Value) {
-        let out = r.jj_graph(&["shapes", "-r", &revset, "--json", "--", "sh", "-c", cmd]);
+        let out = r.jj_normalize(&["shapes", "-r", &revset, "--json", "--", "sh", "-c", cmd]);
         let json = serde_json::from_slice(&out.stdout)
             .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&out.stderr)));
         (out.status.code(), json)
@@ -1276,7 +1276,7 @@ fn shapes_run_the_check_in_every_affected_tree() {
 /// A merge that calls a branch's private helper leaks it.
 #[test]
 fn a_merge_using_a_private_helper_is_a_leak() {
-    use jj_graph::shapes::{Shape, classify, leaks};
+    use jj_normalize::shapes::{Shape, classify, leaks};
     let r = Repo::new();
     let base = r.base();
     r.jj(&["new", "-m", "contract"]);

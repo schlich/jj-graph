@@ -307,6 +307,17 @@ jj-graph reads, so it does not depend on jj-lib itself:
 Open `/docs` while `jj-graph` is running (or open `docs/index.html` directly)
 for the interactive reference documentation.
 
+## jj-normalize
+
+`crates/jj-normalize` keeps a stack's change graph a mirror of the code's
+dependency graph: `jj-normalize check` reports what is out of place, and
+`plan` and `normalize` compute the unique normal form of `trunk()..@` and
+rebase to it as one verified jj operation. Its behaviour is specified in
+Quint and tested with Hegel properties. It has its own lockfile and Nix
+build, and runs on Linux; `nix run .#jj-normalize` runs it, and
+[its README](crates/jj-normalize/README.md) covers the model, the commands,
+and the limits.
+
 ## Develop
 
 ```sh

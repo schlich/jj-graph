@@ -2,7 +2,7 @@
 // component diagram becomes a graph of empty changes before any code exists,
 // together with the behaviour it must have, written as Gherkin features.
 //
-// jj-graph reads a Graphviz digraph: each node becomes an empty change whose
+// jj-normalize reads a Graphviz digraph: each node becomes an empty change whose
 // description is the node's label, and each edge `A -> B` makes A a parent
 // of B. A diagram with a cycle is refused. An edge that another path already implies is dropped, since the
 // change graph is a transitive reduction (the guide's minimality). Roots go

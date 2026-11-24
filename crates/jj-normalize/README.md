@@ -1,4 +1,4 @@
-# jj-graph
+# jj-normalize
 
 Plan, check, and normalize Jujutsu change graphs against the code's
 dependency graph, after "Architectural Graph Engineering in Jujutsu": a
@@ -7,18 +7,34 @@ descends from the changes that define what it references (soundness) and
 from nothing it does not need (minimality).
 
 ```nu
-jj-graph check                       # how far trunk()..@ is from its normal form; exits 1 if not normal
-jj-graph plan --cosmetic --hoist     # the normal form and the rebases that reach it; changes nothing
-jj-graph normalize --cosmetic --hoist  # rewrite trunk()..@ into its normal form, as one operation
-jj-graph normalize --mergiraf        # let mergiraf merge edits of one file that jj's text merge cannot
-jj-graph symbols -r 'trunk()..@'     # what each change defines and references
-jj-graph shapes -- cargo check       # boundary shapes; run a check in each affected change's tree
-jj-graph shapes --every -- cargo test  # run it in every change (the guide's atomicity)
-jj-graph skeleton design.dot features/*.feature  # a ghost graph from a Graphviz diagram and Gherkin specs
+jj-normalize check                       # how far trunk()..@ is from its normal form; exits 1 if not normal
+jj-normalize plan --cosmetic --hoist     # the normal form and the rebases that reach it; changes nothing
+jj-normalize normalize --cosmetic --hoist  # rewrite trunk()..@ into its normal form, as one operation
+jj-normalize normalize --mergiraf        # let mergiraf merge edits of one file that jj's text merge cannot
+jj-normalize symbols -r 'trunk()..@'     # what each change defines and references
+jj-normalize shapes -- cargo check       # boundary shapes; run a check in each affected change's tree
+jj-normalize shapes --every -- cargo test  # run it in every change (the guide's atomicity)
+jj-normalize skeleton design.dot features/*.feature  # a ghost graph from a Graphviz diagram and Gherkin specs
 ```
 
 Every command takes `-r REVSET` (default `trunk()..@`) and `-R DIR`; most
 take `--json`.
+
+## Install
+
+The repository's flake packages it as `jj-normalize`;
+`nix run github:schlich/jj-graph#jj-normalize` runs it. To run it as
+`jj normalize`, add an alias to jj's config:
+
+```toml
+[aliases]
+normalize = ["util", "exec", "--", "jj-normalize"]
+```
+
+It began in the author's dotfiles as `jj-graph` and moved here, beside the
+jj-graph UI, with its history. `docs/` holds the feature description, the
+plans it was built from (which use its old name), and the decision behind
+its normal form.
 
 ## What it does
 
@@ -55,7 +71,7 @@ reports nothing exactly on a graph that is already normal.
 ### Commuting edits of one file
 
 Two changes that touch the same file commute when jj itself can move each
-past the other. jj-graph asks it once per read of the graph
+past the other. jj-normalize asks it once per read of the graph
 (`src/commute.rs`). The pairs it asks about are those whose order nothing but
 a shared file keeps (`Graph::commutation_candidates`). For each pair it runs
 `jj rebase -r u -A v` on an operation it never integrates, so the later change
@@ -74,8 +90,8 @@ order.
 
 With `--mergiraf`, a conflict in `u` or `v` goes to
 [mergiraf](https://mergiraf.org), a structural merge tool. jj runs it as an
-external merge tool through `jj resolve`; jj-graph never links it, and runs
-the program `JJ_GRAPH_MERGIRAF` names, or `mergiraf` on the path. A
+external merge tool through `jj resolve`; jj-normalize never links it, and runs
+the program `JJ_NORMALIZE_MERGIRAF` names, or `mergiraf` on the path. A
 resolution counts only if each change keeps its edit item by item, and `u` on
 top holds what `v` held, though order and layout may differ. An item here is
 a piece of a file: a named item, read with the same queries as definitions;
@@ -88,7 +104,7 @@ rule. A merge is judged against its parents as mergiraf merges them, on an
 operation off the chain that is never integrated. `check` and `plan` take
 `--mergiraf` too, so that they judge the graph by the same rule.
 
-Three situations have no normal form jj-graph will apply:
+Three situations have no normal form jj-normalize will apply:
 
 - **A requirement cycle**: two changes need each other. `normalize` names
   each requirement in the cycle and why it holds.
@@ -108,12 +124,12 @@ specification shows with two of its tests:
 
 - Pass 3 runs `jj rebase -r v -d "parents(u)"`. That pulls `v` out from under
   its own descendants, so a descendant that needed `v` loses it
-  (`docSinkDropsADescendantsDependencyTest`). jj-graph rebases with `-s`,
+  (`docSinkDropsADescendantsDependencyTest`). jj-normalize rebases with `-s`,
   which keeps descendants on `v`.
 - A crawler of local moves (add a missing parent, drop a covered one, sink a
   change below a parent it does not need) can stop short: in a stack
   `u → v → w` where `w` needs both and `v` needs neither, no single move is
-  safe and makes progress (`crawlerStopsShortTest`). jj-graph computes the
+  safe and makes progress (`crawlerStopsShortTest`). jj-normalize computes the
   normal form directly and places changes in a topological order of it, which
   the specification proves never shows jj a cycle and always ends on the
   normal form.
@@ -138,12 +154,12 @@ is unchanged (item by item, for a change mergiraf merged under `--mergiraf`).
 Only then, and only if the repository's head operation is still
 the one it started from, does it run `jj op integrate`. A failed command or
 check leaves the repository as it was. If another operation races the
-integration and leaves a change divergent, jj-graph reverts its own
+integration and leaves a change divergent, jj-normalize reverts its own
 operations with `jj op revert`, which keeps the other one.
 
 ## Splitting changes: precursors and contracts
 
-Both splits run `jj squash --from v --insert-before v` with jj-graph as the
+Both splits run `jj squash --from v --insert-before v` with jj-normalize as the
 diff editor, so the new change below `v` gets one part of `v` and `v` keeps
 its tree, its change ID, and its bookmarks. The part is planned from `v`'s
 diff before jj runs, and assembled from whole top-level syntax units (an item
@@ -172,7 +188,7 @@ what the split moves.
   its own implementation is left alone.
 
 Renamed, copied, and binary files never move anything, and neither do files
-in languages jj-graph cannot read. A file the change adds moves its new
+in languages jj-normalize cannot read. A file the change adds moves its new
 contracts too. A new Rust module brings the `mod` that declares it, when the
 change adds that to a file it modifies, and stays behind when the declaring
 file is new as well; a new Nix module never moves, since another module's
@@ -203,7 +219,7 @@ mean what Graphviz shows for them, and an HTML label is read as its text.
 `a -> {b c}` means an edge to each node of the subgraph, counting nodes an
 earlier subgraph of the same name added. graphviz-rust reads less than DOT
 (it needs the `subgraph` keyword, lowercase keywords, and cannot start an
-edge with a subgraph), so jj-graph lexes the text first and hands
+edge with a subgraph), so jj-normalize lexes the text first and hands
 graphviz-rust the same graph within its grammar. An undirected `graph`, a
 node that builds on itself, an unquoted keyword as a node ID, and node IDs
 with `:` are refused.
@@ -246,7 +262,7 @@ safe and makes it less parallel. Other files only count by path.
 - `tests/extract_properties.rs`, `tests/split_properties.rs`: files in every
   language, moved, commented, reformatted, edited, and extended; what a
   change defines and uses, and what each split moves.
-- `tests/dot_reading.rs`: random DOT texts read by jj-graph and by Graphviz's
+- `tests/dot_reading.rs`: random DOT texts read by jj-normalize and by Graphviz's
   `dot -Tplain`, which must agree.
 - `tests/module_properties.rs`, `tests/extract_examples.rs`,
   `tests/gherkin_examples.rs`: diffs against jj's own output, definitions,
@@ -260,10 +276,10 @@ safe and makes it less parallel. Other files only count by path.
 ```nu
 # jj, quint, git, Graphviz's dot, and mergiraf on PATH; keep cargo's output
 # outside the checkout, since `path:` flakes copy ignored files too.
-$env.CARGO_TARGET_DIR = ($nu.temp-path | path join jj-graph-target)
+$env.CARGO_TARGET_DIR = ($nu.temp-path | path join jj-normalize-target)
 cargo test
 quint test --main=NormalizeExamples spec/Normalize.qnt
-nix build path:.#checks.x86_64-linux.jj-graph-model
+nix build path:.#checks.x86_64-linux.jj-normalize-model
 ```
 
 ## Limits
@@ -287,7 +303,7 @@ nix build path:.#checks.x86_64-linux.jj-graph-model
   conflict, which changes no item. mergiraf keeps each merge it makes for
   `mergiraf review` in its data directory; the merges made only to test a
   pair or to check a plan go to a directory that is removed afterwards.
-- A hoisted part parses and holds what it should, but jj-graph cannot build
+- A hoisted part parses and holds what it should, but jj-normalize cannot build
   it: an import's package name in Go is guessed from its path, and a new
   contract may rely on something only the implementation adds. Run
   `shapes --every -- CMD` after hoisting.

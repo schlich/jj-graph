@@ -21,13 +21,13 @@
 //!
 //! An undirected `graph` is refused, since an edge needs a direction, as is
 //! `--` in a digraph, a node that builds on itself, an unquoted keyword as
-//! a node ID, a node ID with `:`, which jj-graph keeps for the nodes
+//! a node ID, a node ID with `:`, which jj-normalize keeps for the nodes
 //! features add, and a named entity other than XML's five.
 //!
 //! graphviz-rust's grammar reads less than DOT: it needs the `subgraph`
 //! keyword that DOT lets a subgraph omit, takes keywords only in lowercase,
 //! reads a subgraph that starts a statement as a statement of its own even
-//! when an edge follows, and lexes IDs more loosely than DOT. So jj-graph
+//! when an edge follows, and lexes IDs more loosely than DOT. So jj-normalize
 //! lexes the text as DOT itself and hands graphviz-rust the same graph with
 //! keywords in lowercase, every `subgraph` written out, and every ID set
 //! aside behind a placeholder, which it reads back as DOT does.
@@ -162,7 +162,7 @@ fn entity(s: &str) -> Result<Option<(char, usize)>> {
                     .and_then(char::from_u32)
             }
             None if name.starts_with(|c: char| c.is_ascii_alphabetic()) => {
-                bail!("&{name}; is not an entity jj-graph reads; write the character itself")
+                bail!("&{name}; is not an entity jj-normalize reads; write the character itself")
             }
             None => return Ok(None),
         },
@@ -668,7 +668,7 @@ impl Reader {
             Said::Plain(s) => s.to_owned(),
             Said::Quoted(body) => value_of(body),
             Said::Html(content) => html_text(content)?,
-            Said::Previous => bail!("jj-graph misplaced a subgraph an edge starts from"),
+            Said::Previous => bail!("jj-normalize misplaced a subgraph an edge starts from"),
         })
     }
 
@@ -682,7 +682,7 @@ impl Reader {
             // Graphviz substitutes in an HTML label's text, but reads no
             // other escapes there.
             Some(Said::Html(content)) => substituted(&html_text(content)?, node, &self.graph),
-            Some(Said::Previous) => bail!("jj-graph misplaced a subgraph an edge starts from"),
+            Some(Said::Previous) => bail!("jj-normalize misplaced a subgraph an edge starts from"),
         };
         let text = clean(&text);
         let label = if text.is_empty() {
@@ -706,7 +706,7 @@ impl Reader {
         }
         let name = self.text(&id.0)?;
         if name.contains(':') {
-            bail!("node {name:?} has a `:`, which jj-graph keeps for the changes features add");
+            bail!("node {name:?} has a `:`, which jj-normalize keeps for the changes features add");
         }
         if name.is_empty() {
             bail!("a node has an empty ID");
@@ -758,7 +758,7 @@ impl Reader {
                 Vertex::N(id) if matches!(self.said(&id.0), Said::Previous) => {
                     match (k, previous) {
                         (0, Some(place)) => End::Subgraph(place.clone()),
-                        _ => bail!("jj-graph misplaced a subgraph an edge starts from"),
+                        _ => bail!("jj-normalize misplaced a subgraph an edge starts from"),
                     }
                 }
                 Vertex::N(id) => End::Node(self.node(id)?),

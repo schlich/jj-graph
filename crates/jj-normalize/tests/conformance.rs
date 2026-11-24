@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use jj_graph::graph::{Change, Graph, Id, rebase_source};
+use jj_normalize::graph::{Change, Graph, Id, rebase_source};
 use quint_connect::*;
 use serde::Deserialize;
 

@@ -6,19 +6,19 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 
-use jj_graph::apply::{Options, Outcome, command_line, normalize};
-use jj_graph::checks::{mutated_contracts, run_at};
-use jj_graph::commute::{Commutation, How};
-use jj_graph::graph::{Check, Id};
-use jj_graph::jj::Jj;
-use jj_graph::load::{Loaded, Scope, load, short};
-use jj_graph::shapes::{Shape, classify, leaks};
-use jj_graph::{dot, hoist, skeleton};
+use jj_normalize::apply::{Options, Outcome, command_line, normalize};
+use jj_normalize::checks::{mutated_contracts, run_at};
+use jj_normalize::commute::{Commutation, How};
+use jj_normalize::graph::{Check, Id};
+use jj_normalize::jj::Jj;
+use jj_normalize::load::{Loaded, Scope, load, short};
+use jj_normalize::shapes::{Shape, classify, leaks};
+use jj_normalize::{dot, hoist, skeleton};
 
 /// Plan, check, and normalize Jujutsu change graphs against the code's
 /// dependency graph.
 #[derive(Parser)]
-#[command(name = "jj-graph", version)]
+#[command(name = "jj-normalize", version)]
 struct Cli {
     /// A directory inside the workspace to work in.
     #[arg(short = 'R', long, global = true)]
@@ -248,7 +248,7 @@ fn print_check(l: &Loaded, r: &Check) {
         let contracts: Vec<&String> = c.contracts.iter().collect();
         let impls: Vec<String> = c.impl_defs().into_iter().collect();
         println!(
-            "! {} defines contracts ({}) and implementations ({}); `jj-graph normalize --hoist` splits it",
+            "! {} defines contracts ({}) and implementations ({}); `jj-normalize normalize --hoist` splits it",
             name(l, v),
             contracts
                 .iter()
@@ -363,7 +363,7 @@ fn run_normalize(jj: &Jj, a: &NormalizeArgs, apply: bool) -> Result<ExitCode> {
         scope: scope(&a.scope, a.commute.commutation()),
         cosmetic: a.cosmetic,
         hoist: a.hoist,
-        editor: std::env::current_exe().context("finding jj-graph's own path")?,
+        editor: std::env::current_exe().context("finding jj-normalize's own path")?,
         allow_new_combinations: a.allow_new_combinations,
         allow_tree_changes: a.allow_tree_changes,
         apply,
@@ -407,7 +407,7 @@ struct SymbolsJson<'a> {
     change: &'a Id,
     description: String,
     #[serde(flatten)]
-    symbols: &'a jj_graph::extract::Symbols,
+    symbols: &'a jj_normalize::extract::Symbols,
 }
 
 fn symbols(jj: &Jj, a: &ScopeArgs) -> Result<ExitCode> {
@@ -449,9 +449,9 @@ fn symbols(jj: &Jj, a: &ScopeArgs) -> Result<ExitCode> {
 #[derive(Serialize)]
 struct ShapesJson {
     shapes: BTreeMap<Id, BTreeSet<Shape>>,
-    leaks: Vec<jj_graph::shapes::Leak>,
+    leaks: Vec<jj_normalize::shapes::Leak>,
     mutated: BTreeSet<Id>,
-    runs: Vec<jj_graph::checks::Run>,
+    runs: Vec<jj_normalize::checks::Run>,
 }
 
 fn shapes(
@@ -587,7 +587,7 @@ fn skeleton(jj: &Jj, files: &[PathBuf], onto: &str, dry_run: bool, json: bool) -
                 let rel = full
                     .strip_prefix(&root)
                     .with_context(|| format!("{} is not in this workspace", file.display()))?;
-                features.push(jj_graph::gherkin::read_feature(
+                features.push(jj_normalize::gherkin::read_feature(
                     &rel.to_string_lossy(),
                     &text,
                 )?);
@@ -644,10 +644,10 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = (|| -> Result<ExitCode> {
         if let Cmd::SplitEditor { part, left, right } = &cli.command {
-            let path = std::env::var_os(jj_graph::apply::PLAN_VARIABLE).with_context(|| {
+            let path = std::env::var_os(jj_normalize::apply::PLAN_VARIABLE).with_context(|| {
                 format!(
-                    "jj-graph runs as jj's diff editor only while it splits a change, which sets {}",
-                    jj_graph::apply::PLAN_VARIABLE
+                    "jj-normalize runs as jj's diff editor only while it splits a change, which sets {}",
+                    jj_normalize::apply::PLAN_VARIABLE
                 )
             })?;
             let plan: hoist::Plan = serde_json::from_reader(std::fs::File::open(&path)?)
@@ -683,7 +683,7 @@ fn main() -> ExitCode {
     match result {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("jj-graph: {e:#}");
+            eprintln!("jj-normalize: {e:#}");
             ExitCode::from(2)
         }
     }

@@ -1,6 +1,6 @@
 //! Reading jj's Git-format diffs, and line-level changes between two texts.
 //!
-//! jj-graph asks jj for each change's diff with enough context to cover whole
+//! jj-normalize asks jj for each change's diff with enough context to cover whole
 //! files (`jj diff --git --context N`), so every hunk carries the complete
 //! before and after text. That works for merges too, whose "before" is the
 //! auto-merged parents, which `jj file show` cannot print.
