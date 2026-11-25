@@ -4,7 +4,8 @@
   "description": "The browser side of jj-graph: the DAG view and its layout tests. The server is the Rust crate in crates/jj-graph.",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "snapshots": "node docs/snapshots/capture.mjs"
   },
   "engines": { "node": ">=20" },
   "license": "MIT"

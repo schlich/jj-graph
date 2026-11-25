@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jj-graph — Design Snapshots</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f6f4ee;
+      --surface: #ffffff;
+      --well: #ede9df;
+      --rule: #d6d0c2;
+      --rule-strong: #b9b19f;
+      --ink: #1a1d21;
+      --ink-2: #4b515c;
+      --muted: #6c727d;
+      --accent: #0b7a5c;
+      --accent-soft: #e3f2ed;
+      --dry: #a85500;
+      --past: #3e52b5;
+      --danger: #b82d27;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --paper: #111317;
+        --surface: #171a20;
+        --well: #1e222a;
+        --rule: #2b303a;
+        --rule-strong: #414856;
+        --ink: #e6e8ed;
+        --ink-2: #b4bac6;
+        --muted: #848b99;
+        --accent: #52d6a8;
+        --accent-soft: #102a22;
+        --dry: #f5aa4a;
+        --past: #92a6ff;
+        --danger: #ff7e73;
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --paper: #111317;
+      --surface: #171a20;
+      --well: #1e222a;
+      --rule: #2b303a;
+      --rule-strong: #414856;
+      --ink: #e6e8ed;
+      --ink-2: #b4bac6;
+      --muted: #848b99;
+      --accent: #52d6a8;
+      --accent-soft: #102a22;
+      --dry: #f5aa4a;
+      --past: #92a6ff;
+      --danger: #ff7e73;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 15px/1.55 var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    code {
+      font: 12.5px var(--mono);
+      background: var(--well);
+      padding: 0.14em 0.42em;
+      border-radius: 4px;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--paper);
+      border-bottom: 1px solid var(--rule);
+    }
+    .topbar-inner {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+    }
+    .brand {
+      font: 600 15px var(--mono);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .brand small {
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 12px;
+    }
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-left: auto;
+      align-items: center;
+    }
+    .pill {
+      font: 500 12px var(--mono);
+      color: var(--ink-2);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 0.34rem 0.68rem;
+      cursor: pointer;
+    }
+    .pill:hover { border-color: var(--rule-strong); color: var(--ink); }
+    .pill[aria-pressed="true"] {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    main {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 1.75rem 1.5rem 4rem;
+    }
+
+    .intro {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem 1.5rem;
+      padding-bottom: 1.5rem;
+      margin-bottom: 1.75rem;
+      border-bottom: 1px solid var(--rule);
+    }
+    .intro h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      letter-spacing: -0.015em;
+    }
+    .intro p {
+      margin: 0.35rem 0 0;
+      color: var(--ink-2);
+      max-width: 72ch;
+    }
+    .regen {
+      font: 12px var(--mono);
+      color: var(--muted);
+    }
+
+    section.group { margin-bottom: 2.75rem; }
+    section.group[hidden] { display: none; }
+    .group-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .group-head h2 {
+      margin: 0;
+      font: 600 13px var(--mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .group-head span {
+      font: 12px var(--mono);
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      gap: 1.25rem;
+    }
+    .grid.mobile { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+    .grid.wide { grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); }
+
+    figure.card {
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    figure.card[hidden] { display: none; }
+    .thumb-btn {
+      all: unset;
+      display: block;
+      cursor: zoom-in;
+      background: var(--well);
+      border-bottom: 1px solid var(--rule);
+      position: relative;
+      overflow: hidden;
+    }
+    .thumb-btn img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .thumb-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    figcaption {
+      padding: 0.85rem 0.95rem 0.95rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      flex: 1;
+    }
+    .meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .snap-id {
+      font: 600 12px var(--mono);
+      color: var(--ink);
+      background: none;
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+    }
+    .snap-id:hover { color: var(--accent); text-decoration: underline; }
+    .tags {
+      display: flex;
+      gap: 0.35rem;
+      flex: none;
+    }
+    .tag {
+      font: 600 10.5px var(--mono);
+      padding: 0.1rem 0.42rem;
+      border-radius: 4px;
+      border: 1px solid var(--rule);
+      color: var(--muted);
+    }
+    .cap-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .cap-desc {
+      color: var(--ink-2);
+      font-size: 13px;
+      margin: 0;
+    }
+
+    dialog#lightbox {
+      border: 1px solid var(--rule);
+      background: var(--surface);
+      color: var(--ink);
+      border-radius: 12px;
+      padding: 0;
+      max-width: min(96vw, 1360px);
+      max-height: 94vh;
+      overflow: hidden;
+    }
+    dialog#lightbox[open] {
+      display: flex;
+      flex-direction: column;
+    }
+    dialog#lightbox::backdrop { background: rgb(0 0 0 / 0.72); }
+    .lb-head {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--rule);
+      font: 12.5px var(--mono);
+    }
+    .lb-head .lb-meta { color: var(--muted); margin-left: auto; }
+    .lb-body {
+      overflow: auto;
+      padding: 1rem;
+      display: grid;
+      place-items: center;
+      background: var(--well);
+    }
+    .lb-body img {
+      max-width: 100%;
+      max-height: 78vh;
+      width: auto;
+      height: auto;
+      border-radius: 6px;
+      box-shadow: 0 12px 36px rgb(0 0 0 / 0.32);
+    }
+    .lb-foot {
+      padding: 0.65rem 1rem;
+      border-top: 1px solid var(--rule);
+      font-size: 13px;
+      color: var(--ink-2);
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    #copied {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      translate: -50% 0;
+      padding: 0.5rem 0.9rem;
+      border-radius: 999px;
+      background: var(--ink);
+      color: var(--paper);
+      font: 12.5px var(--mono);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.16s ease;
+    }
+    #copied.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span>jj-graph</span>
+        <small>design snapshots</small>
+      </div>
+      <div class="filters" role="group" aria-label="Filter snapshots">
+        <button class="pill" data-filter="all" aria-pressed="true">All (14)</button>
+        <button class="pill" data-filter="web-mobile" aria-pressed="false">Web · Mobile (8)</button>
+        <button class="pill" data-filter="web-desktop" aria-pressed="false">Web · Desktop (3)</button>
+        <button class="pill" data-filter="opencode" aria-pressed="false">OpenCode Plugin (3)</button>
+        <button class="pill" id="themeBtn" type="button" title="Toggle gallery theme">Theme</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="intro">
+      <div>
+        <h1>UI Design Snapshots</h1>
+        <p>
+          Reference captures of <strong>jj-graph</strong> across mobile, desktop, dark/light themes, dry runs, conflicts,
+          history time-travel, sheets, and the OpenCode desktop/TUI plugin. Click any snapshot to inspect full-size, or
+          click a snapshot ID to copy it for design feedback.
+        </p>
+      </div>
+      <div class="regen">Regenerate: <code>npm run snapshots</code></div>
+    </div>
+
+    <div id="sections"></div>
+  </main>
+
+  <dialog id="lightbox" closedby="any" aria-labelledby="lbTitle">
+    <div class="lb-head">
+      <strong id="lbTitle"></strong>
+      <span class="lb-meta" id="lbMeta"></span>
+      <button class="pill" id="lbPrev" type="button" title="Previous (←)">←</button>
+      <button class="pill" id="lbNext" type="button" title="Next (→)">→</button>
+      <button class="pill" id="lbClose" type="button" title="Close (Esc)">✕</button>
+    </div>
+    <div class="lb-body"><img id="lbImg" alt=""></div>
+    <div class="lb-foot">
+      <span id="lbDesc"></span>
+      <button class="pill" id="lbCopy" type="button">Copy ID</button>
+    </div>
+  </dialog>
+
+  <div id="copied" role="status" aria-live="polite"></div>
+
+  <script>
+    const GROUPS = [
+      {
+        id: 'web-mobile',
+        title: 'Web UI · Mobile (390×844 @2x)',
+        subtitle: 'Touch-first layout, coarse pointer hints, bottom sheets',
+        layout: 'mobile',
+        items: [
+          {
+            id: 'web-mobile-dark-live',
+            file: 'web-mobile-dark-live.png',
+            title: 'Live Graph (Dark)',
+            tags: ['mobile', 'dark'],
+            desc: 'Baseline DAG: immutable trunk spine, mutable cards with grips, @ working copy tab, bookmarks, empty dashed card, operation timeline, jjr button, and live status bar.',
+          },
+          {
+            id: 'web-mobile-light-live',
+            file: 'web-mobile-light-live.png',
+            title: 'Live Graph (Light)',
+            tags: ['mobile', 'light'],
+            desc: 'Light-mode parity check: warm paper (#f4f2ec) background, card elevation, contrast of badges, bookmarks, and immutable bedrock rows.',
+          },
+          {
+            id: 'web-mobile-dark-inspector',
+            file: 'web-mobile-dark-inspector.png',
+            title: 'Selected Change + Inspector',
+            tags: ['mobile', 'dark'],
+            desc: 'Tapping a mutable change outlines the card and opens the Inspector bar with horizontally scrollable change actions.',
+          },
+          {
+            id: 'web-mobile-dark-dry-run',
+            file: 'web-mobile-dark-dry-run.png',
+            title: 'Dry Run Active',
+            tags: ['mobile', 'dark', 'dry-run'],
+            desc: 'Two planned steps: amber viewport tint, rewritten card with commit swap (xxxx→yyyy), auto-rebased descendant tab, timeline extending past now, and Undo/Discard/Apply plan bar.',
+          },
+          {
+            id: 'web-mobile-dark-conflict',
+            file: 'web-mobile-dark-conflict.png',
+            title: 'Dry Run with Conflict',
+            tags: ['mobile', 'dark', 'conflict'],
+            desc: 'Non-blocking conflict state: red hatched card, conflict flag chip, and "1 conflicted, not blocking" warning in the plan bar.',
+          },
+          {
+            id: 'web-mobile-dark-history',
+            file: 'web-mobile-dark-history.png',
+            title: 'Operation Log Time-Travel',
+            tags: ['mobile', 'dark', 'history'],
+            desc: 'Indigo read-only history view of an earlier operation: grips removed, timeline dot highlighted, Back and Restore to here controls.',
+          },
+          {
+            id: 'web-mobile-dark-sheet-menu',
+            file: 'web-mobile-dark-sheet-menu.png',
+            title: 'Drop Action Sheet',
+            tags: ['mobile', 'dark', 'sheet'],
+            desc: 'Bottom sheet opened by dragging a card grip onto another change, showing each operation and the exact jj command it dry-runs.',
+          },
+          {
+            id: 'web-mobile-dark-sheet-jjr',
+            file: 'web-mobile-dark-sheet-jjr.png',
+            title: 'jjr Diagnostics Sheet',
+            tags: ['mobile', 'dark', 'sheet'],
+            desc: 'Bottom sheet showing jjr graph summary, severity-coded diagnostics with suggested dry-run fixes, Jev triage, and stack verification actions.',
+          },
+        ],
+      },
+      {
+        id: 'web-desktop',
+        title: 'Web UI · Desktop (1280×800 @2x)',
+        subtitle: 'Fine pointer keyboard hints, wide dialogs, desktop density',
+        layout: 'wide',
+        items: [
+          {
+            id: 'web-desktop-dark-dry-run',
+            file: 'web-desktop-dark-dry-run.png',
+            title: 'Desktop Dry Run + Inspector (Dark)',
+            tags: ['desktop', 'dark', 'dry-run'],
+            desc: 'Wide viewport combining active dry-run amber state, selected change Inspector with keyboard <kbd> hints, and full keyboard status bar.',
+          },
+          {
+            id: 'web-desktop-light-live',
+            file: 'web-desktop-light-live.png',
+            title: 'Desktop Live + Inspector (Light)',
+            tags: ['desktop', 'light'],
+            desc: 'Desktop light theme showing DAG scale, generous whitespace balance, Inspector action strip, and status bar legibility.',
+          },
+          {
+            id: 'web-desktop-dark-diff',
+            file: 'web-desktop-dark-diff.png',
+            title: 'Wide Diff Modal (Dark)',
+            tags: ['desktop', 'dark', 'dialog'],
+            desc: 'Centered wide dialog (dialog#sheet.wide) displaying syntax-colored unified diff output with Summary/Full diff toggle.',
+          },
+        ],
+      },
+      {
+        id: 'opencode',
+        title: 'OpenCode Plugin · Desktop GUI & TUI',
+        subtitle: 'Rendered from live /api/state + .opencode/plugins/jj-graph/model.ts & gui.css',
+        layout: 'wide',
+        items: [
+          {
+            id: 'opencode-gui-dark',
+            file: 'opencode-gui-dark.png',
+            title: 'OpenCode Desktop Side Panel (Dark)',
+            tags: ['opencode-gui', 'dark'],
+            desc: '2×2 view of gui.tsx / gui.css in dark theme: Graph tab with lanes & dry-run status, Plan tab, jjr diagnostics tab, and DETAIL mode.',
+          },
+          {
+            id: 'opencode-gui-light',
+            file: 'opencode-gui-light.png',
+            title: 'OpenCode Desktop Side Panel (Light)',
+            tags: ['opencode-gui', 'light'],
+            desc: 'Same four OpenCode Desktop panel views mapped onto light theme tokens to verify contrast, active tab styling, and row highlight.',
+          },
+          {
+            id: 'opencode-tui-dark',
+            file: 'opencode-tui-dark.png',
+            title: 'OpenCode TUI Plugin (Dark)',
+            tags: ['opencode-tui', 'dark'],
+            desc: 'Session sidebar summary section, home footer status item, jjr diagnostics tab, and docked Graph panel with NORMAL mode hints.',
+          },
+        ],
+      },
+    ];
+
+    const ALL = GROUPS.flatMap((g) => g.items.map((item) => ({ ...item, group: g.id })));
+    const sectionsEl = document.getElementById('sections');
+    const lightbox = document.getElementById('lightbox');
+    const copied = document.getElementById('copied');
+    let currentIndex = 0;
+    let toastTimer = null;
+
+    function notifyCopied(text) {
+      navigator.clipboard?.writeText(text).catch(() => {});
+      copied.textContent = `Copied ${text}`;
+      copied.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => copied.classList.remove('show'), 1600);
+    }
+
+    function openLightbox(index) {
+      currentIndex = (index + ALL.length) % ALL.length;
+      const item = ALL[currentIndex];
+      document.getElementById('lbTitle').textContent = item.id;
+      document.getElementById('lbMeta').textContent = `${currentIndex + 1} / ${ALL.length} · ${item.tags.join(' · ')}`;
+      const img = document.getElementById('lbImg');
+      img.src = item.file;
+      img.alt = item.title;
+      document.getElementById('lbDesc').textContent = `${item.title} — ${item.desc}`;
+      if (!lightbox.open) lightbox.showModal();
+    }
+
+    for (const group of GROUPS) {
+      const sec = document.createElement('section');
+      sec.className = 'group';
+      sec.dataset.group = group.id;
+      sec.innerHTML = `
+        <div class="group-head">
+          <h2>${group.title}</h2>
+          <span>${group.subtitle}</span>
+        </div>
+        <div class="grid ${group.layout}"></div>
+      `;
+      const grid = sec.querySelector('.grid');
+      for (const item of group.items) {
+        const idx = ALL.findIndex((x) => x.id === item.id);
+        const fig = document.createElement('figure');
+        fig.className = 'card';
+        fig.innerHTML = `
+          <button class="thumb-btn" type="button" aria-label="Zoom ${item.title}">
+            <img src="${item.file}" alt="${item.title}" loading="lazy">
+          </button>
+          <figcaption>
+            <div class="meta-row">
+              <button class="snap-id" type="button" title="Copy snapshot ID">${item.id}</button>
+              <span class="tags">${item.tags.map((t) => `<span class="tag">${t}</span>`).join('')}</span>
+            </div>
+            <div class="cap-title">${item.title}</div>
+            <p class="cap-desc">${item.desc}</p>
+          </figcaption>
+        `;
+        fig.querySelector('.thumb-btn').addEventListener('click', () => openLightbox(idx));
+        fig.querySelector('.snap-id').addEventListener('click', () => notifyCopied(item.id));
+        grid.append(fig);
+      }
+      sectionsEl.append(sec);
+    }
+
+    document.querySelectorAll('[data-filter]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const f = btn.dataset.filter;
+        document.querySelectorAll('[data-filter]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+        document.querySelectorAll('section.group').forEach((sec) => {
+          sec.hidden = f !== 'all' && sec.dataset.group !== f;
+        });
+      });
+    });
+
+    document.getElementById('themeBtn').addEventListener('click', () => {
+      const root = document.documentElement;
+      const dark = root.dataset.theme === 'dark' || (!root.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+      root.dataset.theme = dark ? 'light' : 'dark';
+    });
+
+    document.getElementById('lbPrev').addEventListener('click', () => openLightbox(currentIndex - 1));
+    document.getElementById('lbNext').addEventListener('click', () => openLightbox(currentIndex + 1));
+    document.getElementById('lbClose').addEventListener('click', () => lightbox.close());
+    document.getElementById('lbCopy').addEventListener('click', () => notifyCopied(ALL[currentIndex].id));
+    document.addEventListener('keydown', (e) => {
+      if (!lightbox.open) return;
+      if (e.key === 'ArrowLeft') openLightbox(currentIndex - 1);
+      else if (e.key === 'ArrowRight') openLightbox(currentIndex + 1);
+    });
+  </script>
+</body>
+</html>
