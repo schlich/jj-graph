@@ -96,7 +96,15 @@ pub struct GraphNode {
     pub paths: Vec<String>,
     #[serde(rename = "conflictedPaths", skip_serializing_if = "Vec::is_empty")]
     pub conflicted_paths: Vec<String>,
+    /// Number of commits sharing this change id in its evolution log (1 for
+    /// immutable or single-version changes).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub versions: usize,
     pub edges: Vec<Edge>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { layout, edgePath, laneX, ROW, distanceToPolyline } from './layout.js';
+import { layout, stackChanges, edgePath, laneX, ROW, distanceToPolyline } from './layout.js';
 
 const $ = (sel) => document.querySelector(sel);
 const vp = $('#viewport');
@@ -8,8 +8,13 @@ const sheet = $('#sheet');
 
 // A change you can still rewrite is a card; immutable history is a slim row.
 const CARD_W = 292;
+const CARD_H = 52;
 const CARD_GAP = 18;
 const SLIM_H = 34;
+const EVOLOG_ITEM_H = 44;
+const EVOLOG_GAP = 5;
+const EVOLOG_MAX_INLINE = 8;
+const EVOLOG_MORE_H = 30;
 const TIMELINE_OPS = 14;
 const token = new URLSearchParams(location.hash.slice(1)).get('token');
 const fineKeyboard = matchMedia('(hover: hover) and (pointer: fine)');
@@ -19,8 +24,12 @@ const S = {
   json: '',
   lay: null,
   byId: new Map(),
+  allById: new Map(),
   rows: [],
   selected: null, // change id
+  selectedId: null, // commit id (disambiguates expanded divergent commits)
+  expanded: new Set(), // change ids whose stacked commits are fanned out inline
+  evolog: new Map(), // `${commitId}@${at}` -> { status, versions?, error? }
   mode: 'NORMAL',
   pick: null, // { node, cursor }
   at: null, // operation id being looked back at, or null for the present
@@ -39,7 +48,73 @@ const firstLine = (s) => s.split('\n')[0];
 const rev = (n) => (n.divergent || n.hidden ? n.id : n.change);
 const short = (n) => n.change.slice(0, Math.max(n.prefix.length, 4));
 const nameOf = (n) => firstLine(n.description) || short(n);
-const selectedNode = () => S.rows.find((n) => n.change === S.selected) ?? null;
+const selectedNode = () => (S.selectedId ? S.rows.find((n) => n.id === S.selectedId) : null)
+  ?? (S.selected ? S.rows.find((n) => n.change === S.selected) : null)
+  ?? null;
+
+const evologKey = (n) => `${n.id}@${S.at ?? ''}`;
+
+function olderEvologVersions(n) {
+  const entry = S.evolog.get(evologKey(n));
+  if (!entry || entry.status !== 'ready') return null;
+  const shownIds = new Set((n.stackNodes ?? [n]).map((m) => m.id));
+  return entry.versions.filter((v) => !shownIds.has(v.commit) && (!v.change || v.change === n.change));
+}
+
+function shouldShowTray(n) {
+  if (!n.stackExpanded || n.stackIndex !== 0 || n.immutable) return false;
+  return (n.versions || 1) > (n.stackNodes?.length || 1) || n.stackTotal > (n.stackNodes?.length || 1);
+}
+
+function ensureEvolog(n) {
+  const key = evologKey(n);
+  if (S.evolog.has(key)) return;
+  S.evolog.set(key, { status: 'loading' });
+  api(`/api/evolog?rev=${n.id}${S.at ? `&at=${S.at}` : ''}`)
+    .then(({ versions }) => {
+      S.evolog.set(key, { status: 'ready', versions });
+      render();
+    })
+    .catch((err) => {
+      S.evolog.set(key, { status: 'error', error: err.message });
+      render();
+    });
+}
+
+function rowMetric(n) {
+  if (n.immutable) return SLIM_H;
+  if (n.stackExpanded && n.stackIndex === 0 && shouldShowTray(n)) {
+    const entry = S.evolog.get(evologKey(n));
+    if (!entry || entry.status === 'loading' || entry.status === 'error') {
+      return { height: ROW + 6 + 34 + 10, anchor: ROW / 2 };
+    }
+    const older = olderEvologVersions(n) ?? [];
+    if (older.length > 0) {
+      const shown = Math.min(older.length, EVOLOG_MAX_INLINE);
+      const hasMore = older.length > EVOLOG_MAX_INLINE;
+      const trayH = 6 + shown * EVOLOG_ITEM_H + Math.max(0, shown - 1) * EVOLOG_GAP + (hasMore ? EVOLOG_GAP + EVOLOG_MORE_H : 0) + 10;
+      return { height: ROW + trayH, anchor: ROW / 2 };
+    }
+    return ROW;
+  }
+  if (!n.stackExpanded && n.stackTotal > 1) {
+    const peeks = Math.min(2, n.stackTotal - 1);
+    return { height: ROW + (peeks === 2 ? 14 : 8), anchor: ROW / 2 };
+  }
+  return ROW;
+}
+
+function toggleStack(changeKey) {
+  if (S.expanded.has(changeKey)) {
+    S.expanded.delete(changeKey);
+    render();
+    return;
+  }
+  S.expanded.add(changeKey);
+  render();
+  const head = S.rows.find((n) => n.stackKey === changeKey && n.stackIndex === 0);
+  if (head) ensureVisible(head.id);
+}
 
 /** Same shortening the server applies to a step's label. */
 function displayCommand(args) {
@@ -121,6 +196,7 @@ async function dry(args, { focus = null } = {}) {
   else announce(`Previewed ${displayCommand(Array.isArray(args) ? args : [args])}`);
   if (focus) {
     S.selected = focus;
+    S.selectedId = null;
     render();
     const n = selectedNode();
     if (n) ensureVisible(n.id);
@@ -145,14 +221,82 @@ async function applyPlan() {
 
 // ---------------------------------------------------------------- render
 
+function renderStackPill(n) {
+  if (n.stackTotal <= 1) return '';
+  if (n.stackExpanded && n.stackIndex > 0) {
+    return `<button type="button" class="stack-pill member" data-stack-toggle="${esc(n.stackKey)}" `
+      + `title="Commit ${n.stackIndex + 1} of ${n.stackTotal} for this change — click to collapse">`
+      + `${n.stackIndex + 1}/${n.stackTotal}</button>`;
+  }
+  const label = n.stackExpanded
+    ? 'Collapse commits for this change'
+    : `${n.stackTotal} commits for this change — click to fan out`;
+  return `<button type="button" class="stack-pill${n.stackExpanded ? ' open' : ''}" data-stack-toggle="${esc(n.stackKey)}" `
+    + `title="${esc(label)}" aria-expanded="${n.stackExpanded}">`
+    + '<svg class="stack-ico" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">'
+    + '<path d="M2 4.5 6 2l4 2.5L6 7 2 4.5Zm0 3L6 10l4-2.5" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round" stroke-linecap="round"/>'
+    + `</svg><span>${n.stackTotal}</span></button>`;
+}
+
+function renderEvologTray(n, st) {
+  if (!shouldShowTray(n)) return '';
+  const entry = S.evolog.get(evologKey(n));
+  if (!entry || entry.status === 'loading') {
+    return '<div class="stack-tray"><div class="stack-sub note">Loading earlier commits…</div></div>';
+  }
+  if (entry.status === 'error') {
+    return `<div class="stack-tray"><div class="stack-sub note warn">${esc(entry.error)}</div></div>`;
+  }
+  const older = olderEvologVersions(n) ?? [];
+  if (!older.length) return '';
+  const restorable = !n.immutable && !st.viewing && !S.at;
+  const shown = older.slice(0, EVOLOG_MAX_INLINE);
+  const rest = older.length - shown.length;
+  const items = shown.map((v) => {
+    const desc = v.description ? esc(v.description) : v.empty ? '(empty)' : '(no description)';
+    const op = v.operation ?? 'made outside jj';
+    const flags = [v.empty && 'empty', v.conflict && 'conflict'].filter(Boolean).join(' ');
+    const label = `${short(n)} @ ${v.commit.slice(0, 8)}`;
+    return `<div class="stack-sub ${flags}">`
+      + '<div class="sub-head">'
+      + `<span class="sub-desc${v.description ? '' : ' none'}">${desc}</span>`
+      + '<span class="sub-acts">'
+      + `<button type="button" class="sub-btn" data-evolog-diff="${esc(v.commit)}" data-evolog-label="${esc(label)}" title="Inspect this commit's diff">Diff</button>`
+      + (restorable ? `<button type="button" class="sub-btn restore" data-evolog-restore="${esc(v.commit)}" data-evolog-target="${esc(n.id)}" title="Dry-run restoring this commit into ${esc(short(n))}">Restore</button>` : '')
+      + '</span></div>'
+      + '<div class="sub-meta">'
+      + `<span class="sub-hash">${esc(v.commit.slice(0, 8))}</span>`
+      + (v.conflict ? '<span class="sub-flag">conflict</span>' : '')
+      + `<span class="sub-op">${esc(op)}</span>`
+      + `<span class="sub-time">${ago(v.time)}</span>`
+      + '</div></div>';
+  }).join('');
+  const more = rest > 0
+    ? `<button type="button" class="stack-more" data-evolog-more="${esc(n.id)}">+ ${rest} older commit${rest === 1 ? '' : 's'} — open evolution</button>`
+    : '';
+  return `<div class="stack-tray">${items}${more}</div>`;
+}
+
 function render() {
   const st = S.state;
   if (!st) return;
-  S.rows = st.nodes;
-  S.byId = new Map(st.nodes.map((n) => [n.id, n]));
-  S.lay = layout(st.nodes, (n) => (n.immutable ? SLIM_H : ROW));
+  S.allById = new Map(st.nodes.map((n) => [n.id, n]));
+  const visible = stackChanges(st.nodes, S.expanded);
+  for (const n of visible) {
+    if (shouldShowTray(n)) ensureEvolog(n);
+  }
+  S.rows = visible;
+  S.byId = new Map(visible.map((n) => [n.id, n]));
+  S.lay = layout(visible, rowMetric);
   S.edgePoints = null;
-  if (S.selected && !selectedNode()) S.selected = null;
+  const sel = selectedNode();
+  if (!sel) {
+    S.selected = null;
+    S.selectedId = null;
+  } else {
+    S.selected = sel.change;
+    S.selectedId = sel.id;
+  }
   if (S.pick && !S.byId.has(S.pick.node.id)) S.pick = null;
   if (st.viewing && S.mode === 'NORMAL') S.mode = 'HISTORY';
   if (!st.viewing && S.mode === 'HISTORY') S.mode = 'NORMAL';
@@ -181,14 +325,17 @@ function render() {
   const STATUS = { new: 'new', edited: 'rewritten', followed: st.rewound ? 'restored' : 'auto-rebased' };
   let nodeHtml = '';
   let rowHtml = '';
-  for (const n of st.nodes) {
+  for (const n of visible) {
     const p = pos.get(n.id);
     const x = laneX(p.lane);
     const left = laneX(p.reach) + CARD_GAP;
     const before = st.baseline?.[n.change];
     const status = !st.baseline ? null : !before ? 'new' : before !== n.id ? (touched.has(n.change) ? 'edited' : 'followed') : null;
+    const isSelected = n.id === S.selectedId;
+    const isStacked = !n.stackExpanded && n.stackTotal > 1;
+    const isSubMember = n.stackExpanded && n.stackIndex > 0;
     const flags = [n.wc && 'wc', n.immutable && 'immutable', n.empty && 'empty', n.conflict && 'conflict',
-      status && 'changed', n.change === S.selected && 'selected'].filter(Boolean).join(' ');
+      status && 'changed', isSelected && 'selected'].filter(Boolean).join(' ');
     edgeHtml += `<path class="tether${n.immutable ? ' trunk' : ''}" d="M${x},${p.y} L${left},${p.y}"/>`;
     nodeHtml += `<g class="node ${flags}" data-node="${n.id}" transform="translate(${x},${p.y})">`
       + '<circle class="sel" r="15"/>'
@@ -209,19 +356,32 @@ function render() {
       ...n.remotes.map((r) => `<span class="chip remote">${esc(r)}</span>`),
     ].join('');
     const descHtml = `<div class="desc${desc ? '' : ' none'}">${desc ? esc(desc) : n.empty ? '(empty)' : '(no description)'}</div>`;
-    const style = `style="left:${left}px;top:${p.y}px"`;
+    const stackPill = renderStackPill(n);
     if (n.immutable) {
-      rowHtml += `<div class="row slim ${flags}" data-node="${n.id}" ${style}>${descHtml}${cid}${chips}</div>`;
+      const style = `style="left:${left}px;top:${p.y}px"`;
+      rowHtml += `<div class="row slim ${flags}" data-node="${n.id}" ${style}>${descHtml}${cid}${chips}${stackPill}</div>`;
       continue;
     }
     // A rewritten change keeps its id; only the commit underneath is new.
     const info = status && before ? `<span class="swap">${before.slice(0, 4)}→${n.id.slice(0, 4)}</span>`
       : `<span>${n.empty ? 'empty' : `${n.files} file${n.files === 1 ? '' : 's'}`} · ${ago(n.time)}</span>`;
-    rowHtml += `<div class="row card ${flags}${st.viewing ? ' nogrip' : ''}" data-node="${n.id}" ${style}>`
+    const peeks = isStacked ? Math.min(2, n.stackTotal - 1) : 0;
+    const rowCls = ['row', 'card-row', flags, isStacked && 'stacked', n.stackExpanded && 'expanded', isSubMember && 'stack-member']
+      .filter(Boolean).join(' ');
+    const cardCls = ['card', flags, st.viewing && 'nogrip', isSubMember && 'stack-member']
+      .filter(Boolean).join(' ');
+    const style = `style="left:${left}px;top:${p.y - CARD_H / 2}px"`;
+    rowHtml += `<div class="${rowCls}" data-node="${n.id}" ${style}>`
+      + '<div class="card-stack">'
+      + (peeks >= 2 ? '<span class="stack-card l2" aria-hidden="true"></span>' : '')
+      + (peeks >= 1 ? '<span class="stack-card l1" aria-hidden="true"></span>' : '')
+      + `<div class="${cardCls}">`
       + (n.wc ? '<span class="tab wc">@ working copy</span>' : '')
       + (status ? `<span class="tab st">${STATUS[status]}</span>` : '')
       + (st.viewing ? '' : '<span class="grip" data-grip aria-hidden="true"></span>')
-      + `<div class="body">${descHtml}<div class="meta">${cid}${chips}${info}</div></div></div>`;
+      + `<div class="body"><div class="head-line">${descHtml}${stackPill}</div><div class="meta">${cid}${chips}${info}</div></div></div></div>`
+      + renderEvologTray(n, st)
+      + '</div>';
   }
   $('#edges').innerHTML = edgeHtml + hitHtml;
   $('#nodes').innerHTML = nodeHtml;
@@ -245,9 +405,9 @@ function render() {
   renderInspector();
   renderStatus();
 
-  if (S.firstRender && st.nodes.length) {
+  if (S.firstRender && visible.length) {
     S.firstRender = false;
-    const wc = st.nodes.find((n) => n.wc);
+    const wc = visible.find((n) => n.wc);
     const y = wc ? pos.get(wc.id).y : 0;
     const h = vp.clientHeight;
     S.view = { x: 6, y: y > h * 0.7 ? h * 0.4 - y : 8, k: 1 };
@@ -396,7 +556,11 @@ function renderStatus() {
       hints.push(['Esc', 'NORMAL']);
     } else {
       hints = [['j/k', 'select']];
-      if (selectedNode()) hints.push(...ACTIONS.map((a) => [a.key, a.label.replace(/[…↓ ]+$/, '').toLowerCase()]), ['Esc', 'deselect']);
+      const sel = selectedNode();
+      if (sel) {
+        if (sel.stackTotal > 1) hints.push(['Enter', sel.stackExpanded ? 'collapse' : 'expand']);
+        hints.push(...ACTIONS.map((a) => [a.key, a.label.replace(/[…↓ ]+$/, '').toLowerCase()]), ['Esc', 'deselect']);
+      }
       if (dryOn) hints.push(['u', 'undo'], ['y', 'apply'], ['x', 'discard'], ['p', 'steps']);
       if (S.state?.dry.redo.length) hints.push(['r', 'redo']);
       hints.push(['[', 'HISTORY'], [':', 'jj command'], ['/', 'revset'], ['f', 'fit']);
@@ -587,13 +751,13 @@ async function showEvolution(n) {
   }
 }
 
-async function showDiff(n, mode = 'stat') {
+async function showCommitDiff(commit, title, mode = 'stat') {
   const pre = h('<pre class="diff">Loading…</pre>');
   const more = h(`<div class="form"><div class="row"><button>${mode === 'stat' ? 'Full diff' : 'Summary'}</button></div></div>`);
-  more.querySelector('button').onclick = () => showDiff(n, mode === 'stat' ? 'diff' : 'stat');
-  openSheet(`${short(n)} · ${nameOf(n)}`, [pre, more], { wide: true });
+  more.querySelector('button').onclick = () => showCommitDiff(commit, title, mode === 'stat' ? 'diff' : 'stat');
+  openSheet(title, [pre, more], { wide: true });
   try {
-    const { text } = await api(`/api/show?rev=${n.id}&mode=${mode}${S.at ? `&at=${S.at}` : ''}`);
+    const { text } = await api(`/api/show?rev=${commit}&mode=${mode}${S.at ? `&at=${S.at}` : ''}`);
     pre.innerHTML = text.split('\n').map((line) => {
       const cls = mode !== 'diff' ? '' : line.startsWith('@@') ? 'hunk'
         : line.startsWith('+') && !line.startsWith('+++') ? 'add'
@@ -605,10 +769,16 @@ async function showDiff(n, mode = 'stat') {
   }
 }
 
+function showDiff(n, mode = 'stat') {
+  return showCommitDiff(n.id, `${short(n)} · ${nameOf(n)}`, mode);
+}
+
 // ---------------------------------------------------------------- operations
 
+const lookupNode = (id) => S.byId.get(id) ?? S.allById.get(id);
+
 function parentRevs(n) {
-  return n.parents.map((p) => (S.byId.has(p) ? rev(S.byId.get(p)) : p));
+  return n.parents.map((p) => (lookupNode(p) ? rev(lookupNode(p)) : p));
 }
 
 function nodeOnNode(x, y) {
@@ -647,7 +817,7 @@ function edgeOnNode(edge, target) {
   const child = S.byId.get(edge.from);
   const next = [];
   for (const p of child.parents) {
-    const r = p === edge.parent ? rev(target) : (S.byId.has(p) ? rev(S.byId.get(p)) : p);
+    const r = p === edge.parent ? rev(target) : (lookupNode(p) ? rev(lookupNode(p)) : p);
     if (!next.includes(r)) next.push(r);
   }
   return [{
@@ -664,7 +834,7 @@ function edgeMenu(edge) {
   if (child.immutable) return toast('Both ends of this edge are immutable.');
   const opts = [{ title: 'Insert a new change here', args: ['new', '--no-edit', '-A', rev(parent), '-B', rev(child)] }];
   if (child.parents.length > 1) {
-    const rest = child.parents.filter((p) => p !== edge.parent).map((p) => (S.byId.has(p) ? rev(S.byId.get(p)) : p));
+    const rest = child.parents.filter((p) => p !== edge.parent).map((p) => (lookupNode(p) ? rev(lookupNode(p)) : p));
     opts.push({ title: 'Remove this parent', sub: `“${nameOf(child)}” stops merging “${nameOf(parent)}”.`, args: ['rebase', '-s', rev(child), ...rest.flatMap((p) => ['-o', p])] });
   }
   openMenu(`${short(child)} → ${short(parent)}`, opts);
@@ -806,7 +976,8 @@ function findTarget(wx, wy, allowed) {
     const d = Math.hypot(wx - laneX(p.lane), wy - p.y);
     if (d < nd) { nd = d; node = n; }
     const left = laneX(p.reach) + CARD_GAP - 6;
-    if (Math.abs(wy - p.y) < p.h / 2 - 4 && wx >= left && wx <= left + CARD_W) rowNode = n;
+    const hitHalf = (n.immutable ? SLIM_H : ROW) / 2 - 4;
+    if (Math.abs(wy - p.y) < hitHalf && wx >= left && wx <= left + CARD_W) rowNode = n;
   }
   if (node) return { type: 'node', node };
   let edge = null;
@@ -820,6 +991,21 @@ function findTarget(wx, wy, allowed) {
 }
 
 function describeHit(target) {
+  const toggleEl = target.closest?.('[data-stack-toggle]');
+  if (toggleEl) return { type: 'stack-toggle', key: toggleEl.dataset.stackToggle };
+  const diffEl = target.closest?.('[data-evolog-diff]');
+  if (diffEl) return { type: 'evolog-diff', commit: diffEl.dataset.evologDiff, label: diffEl.dataset.evologLabel };
+  const restoreEl = target.closest?.('[data-evolog-restore]');
+  if (restoreEl) {
+    const node = S.byId.get(restoreEl.dataset.evologTarget);
+    if (node) return { type: 'evolog-restore', commit: restoreEl.dataset.evologRestore, node };
+  }
+  const moreEl = target.closest?.('[data-evolog-more]');
+  if (moreEl) {
+    const node = S.byId.get(moreEl.dataset.evologMore);
+    if (node) return { type: 'evolog-more', node };
+  }
+  if (target.closest?.('.stack-tray')) return { type: 'evolog-noop' };
   const t = target.closest?.('[data-bookmark]');
   const nodeEl = target.closest?.('[data-node]');
   const node = nodeEl ? S.byId.get(nodeEl.dataset.node) : null;
@@ -904,6 +1090,16 @@ function endDrag(commit) {
 }
 
 function tap(what) {
+  if (what.type === 'stack-toggle') return toggleStack(what.key);
+  if (what.type === 'evolog-diff') return showCommitDiff(what.commit, what.label);
+  if (what.type === 'evolog-more') return showEvolution(what.node);
+  if (what.type === 'evolog-restore') {
+    if (S.mode === 'HISTORY' || S.at) {
+      return toast('This is the past, so it is read-only. Restore to it, or go back to now, to change things.');
+    }
+    return dry(['restore', '--from', what.commit, '--to', rev(what.node)], { focus: what.node.change });
+  }
+  if (what.type === 'evolog-noop') return;
   if (S.mode === 'PICK') {
     if (what.type === 'bg') return endPick();
     if (what.type === 'edge') return finishPick({ type: 'edge', edge: what.edge });
@@ -914,11 +1110,20 @@ function tap(what) {
   }
   if (what.type === 'bookmark') return bookmarkMenu(what.name, what.node);
   if (what.type === 'edge') return edgeMenu(what.edge);
-  select(what.type === 'bg' ? null : what.node.change === S.selected ? null : what.node.change);
+  select(what.type === 'bg' ? null : what.node.id === S.selectedId ? null : what.node);
 }
 
-function select(change) {
-  S.selected = change;
+function select(target) {
+  if (!target) {
+    S.selected = null;
+    S.selectedId = null;
+  } else if (typeof target === 'string') {
+    S.selected = target;
+    S.selectedId = S.rows.find((n) => n.change === target)?.id ?? null;
+  } else {
+    S.selected = target.change;
+    S.selectedId = target.id;
+  }
   for (const el of document.querySelectorAll('.selected')) el.classList.remove('selected');
   const n = selectedNode();
   if (n) for (const el of document.querySelectorAll(`[data-node="${n.id}"]`)) el.classList.add('selected');
@@ -1194,11 +1399,18 @@ function moveSelection(delta) {
     markPickCursor();
     return ensureVisible(S.pick.cursor.id);
   }
-  const i = S.rows.findIndex((n) => n.change === S.selected);
+  const i = S.rows.findIndex((n) => n.id === S.selectedId || (!S.selectedId && n.change === S.selected));
   const next = S.rows[Math.max(0, Math.min(S.rows.length - 1, i === -1 ? 0 : i + delta))];
-  select(next.change);
+  select(next);
   ensureVisible(next.id);
 }
+
+$('#labels').addEventListener('click', (e) => {
+  // Pointer clicks are handled by pointerup/tap; handle keyboard activation (detail === 0) here.
+  if (e.detail !== 0) return;
+  const what = describeHit(e.target);
+  if (['stack-toggle', 'evolog-diff', 'evolog-restore', 'evolog-more'].includes(what.type)) tap(what);
+});
 
 document.addEventListener('keydown', (e) => {
   if (!S.keyboard) {
@@ -1220,6 +1432,10 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   const n = selectedNode();
+  if (key === 'Enter' && S.mode === 'NORMAL' && n && n.stackTotal > 1) {
+    e.preventDefault();
+    return toggleStack(n.stackKey);
+  }
   const action = ACTIONS.find((a) => a.key === key);
   if (action && n) {
     e.preventDefault();

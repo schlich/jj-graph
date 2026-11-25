@@ -11,6 +11,8 @@
   --immutable: light-dark(#b3ad9d, #454b57);
   --accent: light-dark(#0b7a5c, #4fd6a8);
   --accent-ink: light-dark(#ffffff, #06241a);
+  --select: light-dark(#1a64d6, #5eb0ff);
+  --select-bg: light-dark(#edf4ff, #152236);
   --dry: light-dark(#b25e00, #ffb347);
   --dry-bg: light-dark(#fff3dc, #241c0e);
   --past: light-dark(#4a5fc1, #8ea2ff);
@@ -172,6 +174,9 @@ body.history #viewport { background-color: var(--past-bg); box-shadow: inset 0 3
 .node.conflict .dot { fill: var(--danger); stroke: none; }
 .node.changed .dot { fill: var(--dry); stroke: none; }
 .node .sel { fill: none; }
+.node.selected:not(.target) .sel { r: 12px; fill: color-mix(in srgb, var(--select) 20%, transparent); stroke: var(--select); stroke-width: 2; }
+.node.wc.selected:not(.target) .sel { r: 14px; }
+.node.immutable.selected:not(.target) .sel { r: 10px; }
 .node.target .sel { fill: color-mix(in srgb, var(--accent) 35%, transparent); stroke: var(--accent); stroke-width: 3; }
 .node.source { opacity: 0.35; }
 body.history .node .hit { cursor: pointer; }
@@ -182,7 +187,44 @@ body.history .node .hit { cursor: pointer; }
 
 /* A change you can rewrite is a card. */
 .row { position: absolute; width: 292px; translate: 0 -50%; cursor: pointer; }
+.row.card-row { translate: none; }
+.card-stack { position: relative; height: 52px; }
+.stack-card {
+  position: absolute;
+  top: 0;
+  height: 52px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  pointer-events: none;
+}
+.stack-card.l1 {
+  left: 6px;
+  right: 6px;
+  top: 5px;
+  z-index: 1;
+  background: color-mix(in srgb, var(--panel-2) 72%, var(--panel));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.14);
+}
+.stack-card.l2 {
+  left: 12px;
+  right: 12px;
+  top: 10px;
+  z-index: 0;
+  background: var(--panel-2);
+  opacity: 0.85;
+}
+.card-row.wc .stack-card { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.card-row.changed .stack-card { border-color: color-mix(in srgb, var(--dry) 50%, var(--line)); }
+.card-row.conflict .stack-card { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.card-row.empty .stack-card { border-style: dashed; background: var(--bg); }
+.card-row.selected .stack-card {
+  border-color: color-mix(in srgb, var(--select) 50%, var(--line));
+  background: color-mix(in srgb, var(--select-bg) 68%, var(--panel-2));
+}
+
 .card {
+  position: relative;
+  z-index: 2;
   height: 52px;
   display: flex;
   align-items: stretch;
@@ -204,6 +246,8 @@ body.history .node .hit { cursor: pointer; }
 }
 .card .body { flex: 1; min-width: 0; padding: 6px 10px 6px 4px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
 .card.nogrip .body { padding-left: 12px; }
+.card .head-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.card .head-line .desc { flex: 1; min-width: 0; }
 .row .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .desc.none { color: var(--muted); font-style: italic; }
 .card .meta { display: flex; align-items: center; gap: 6px; font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; }
@@ -212,20 +256,180 @@ body.history .node .hit { cursor: pointer; }
 .card .swap { color: var(--dry); }
 
 .card.empty { border-style: dashed; background: transparent; box-shadow: none; }
+.card-row.stacked .card.empty { background: var(--bg); }
 .card.wc { border: 2px solid var(--accent); }
 .card.conflict {
   border-color: var(--danger);
   background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--danger) 9%, transparent) 0 6px, transparent 6px 12px);
 }
 .card.changed { border-color: var(--dry); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dry) 22%, transparent); }
-.card.selected, .slim.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
-.row.target { outline: 3px solid var(--accent); outline-offset: 2px; background-color: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+.card.stack-member {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--panel) 84%, var(--panel-2));
+}
+.card-row.selected > .card-stack > .card {
+  background-color: var(--select-bg);
+  outline: 2px solid var(--select);
+  outline-offset: 2px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--select) 18%, transparent);
+}
+.card-row.selected > .card-stack > .card:not(.wc, .changed, .conflict) {
+  border-color: color-mix(in srgb, var(--select) 55%, var(--line));
+}
+.card-row.selected > .card-stack > .card .grip {
+  background: radial-gradient(circle, var(--select) 1.3px, transparent 1.7px) center / 7px 7px;
+  background-clip: content-box;
+  opacity: 0.9;
+}
+.card-row.empty.selected:not(.target) > .card-stack > .card {
+  background-color: color-mix(in srgb, var(--select) 10%, var(--bg));
+}
+.slim.selected {
+  background-color: var(--select-bg);
+  color: var(--text);
+  outline: 2px solid var(--select);
+  outline-offset: 2px;
+}
+.card-row.target > .card-stack > .card,
+.slim.target {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  background-color: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
 .row.source { opacity: 0.35; }
+
+/* Stack count pill on cards/rows with multiple commits for the same change. */
+.stack-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  font: 600 10.5px/1 var(--mono);
+  cursor: pointer;
+}
+.stack-pill:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.stack-pill.open {
+  background: color-mix(in srgb, var(--select) 16%, var(--panel-2));
+  border-color: color-mix(in srgb, var(--select) 55%, var(--line));
+  color: var(--select);
+}
+.stack-pill.member {
+  background: transparent;
+  border-style: dashed;
+}
+.stack-ico { flex: none; opacity: 0.85; }
+
+/* Inline fanned-out earlier commits under an expanded stacked card. */
+.stack-tray {
+  margin: 6px 0 0 14px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--line) 85%, var(--muted));
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: default;
+}
+.card-row.selected .stack-tray {
+  border-left-color: color-mix(in srgb, var(--select) 55%, var(--line));
+}
+.stack-sub {
+  height: 44px;
+  padding: 4px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 84%, var(--panel-2));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+.stack-sub.empty { border-style: dashed; background: color-mix(in srgb, var(--bg) 75%, var(--panel)); }
+.stack-sub.conflict { border-color: color-mix(in srgb, var(--danger) 65%, var(--line)); }
+.stack-sub.note {
+  height: 34px;
+  font: 12px var(--mono);
+  color: var(--muted);
+  border-style: dashed;
+}
+.sub-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.sub-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sub-desc.none { color: var(--muted); font-style: italic; }
+.sub-acts { flex: none; display: inline-flex; gap: 4px; }
+.sub-btn {
+  min-height: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font: 600 10.5px/1 var(--mono);
+  cursor: pointer;
+}
+.sub-btn:hover { color: var(--text); border-color: var(--muted); }
+.sub-btn.restore:hover { color: var(--dry); border-color: var(--dry); }
+.sub-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font: 10.5px/1.2 var(--mono);
+  color: var(--muted);
+  min-width: 0;
+  white-space: nowrap;
+}
+.sub-hash { color: var(--text); opacity: 0.78; flex: none; }
+.sub-flag {
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 70%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 9.5px;
+  flex: none;
+}
+.sub-op { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sub-time { flex: none; }
+.stack-more {
+  min-height: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: 600 11px/1 var(--mono);
+  text-align: left;
+}
+.stack-more:hover { color: var(--text); border-color: var(--muted); }
 
 /* Tabs sit on a card's top edge and name the state it is in. */
 .tab {
   position: absolute;
   top: -9px;
+  z-index: 3;
   font: 700 10px var(--mono);
   letter-spacing: 0.03em;
   padding: 1px 7px;
@@ -285,7 +489,7 @@ body.history .node .hit { cursor: pointer; }
 #empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; white-space: pre-wrap; font-family: var(--mono); font-size: 13px; }
 
 /* Inspector */
-#inspector { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 10px 6px; }
+#inspector { background: var(--panel); border-top: 2px solid var(--select); padding: 8px 10px 6px; }
 #inspector .who { display: flex; gap: 8px; align-items: baseline; }
 #inspector .who .cid { font-size: 13px; }
 #inspector .who .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }

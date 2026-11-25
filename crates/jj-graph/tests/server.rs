@@ -208,11 +208,20 @@ fn the_operation_log_can_be_looked_back_at_and_restored_as_a_dry_run() {
     assert_eq!(past["head"], now["head"]);
 
     // One change, several versions.
+    let b_before = node(&before, "feat b");
     let b = node(&now, "feat b, reworded").clone();
+    assert_eq!(
+        b["versions"].as_u64().unwrap(),
+        b_before["versions"].as_u64().unwrap() + 1
+    );
     let evo = get(&mut app, "/api/evolog", &[("rev", s(&b["id"]))]).unwrap();
     let versions = evo["versions"].as_array().unwrap();
     assert!(versions.len() >= 2);
+    assert_eq!(b["versions"].as_u64().unwrap() as usize, versions.len());
     assert_eq!(versions[0]["commit"], b["id"]);
+    assert_eq!(versions[0]["change"], b["change"]);
+    assert_eq!(versions[0]["empty"], false);
+    assert_eq!(versions[0]["conflict"], false);
     assert!(
         s(&versions[0]["operation"]).contains("describe commit"),
         "{}",

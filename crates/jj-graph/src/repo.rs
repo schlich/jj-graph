@@ -116,10 +116,13 @@ pub struct OpEntry {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Version {
     pub commit: String,
+    pub change: String,
     pub description: String,
     pub operation: Option<String>,
     pub time: String,
     pub snapshot: bool,
+    pub empty: bool,
+    pub conflict: bool,
 }
 
 /// A revision a guardrail check resolved.
@@ -389,6 +392,7 @@ impl RepoContext {
             .get_wc_commit_id(self.workspace.workspace_name())
             .cloned();
         let mut nodes = Vec::with_capacity(ids.len());
+        let mut mutable_ids: Vec<(usize, CommitId)> = Vec::new();
         for id in &ids {
             let commit = Self::commit(repo, id)?;
             let change_id = commit.change_id();
@@ -405,6 +409,9 @@ impl RepoContext {
             } else {
                 Self::changed_paths(repo, &commit)?
             };
+            if !immutable {
+                mutable_ids.push((nodes.len(), id.clone()));
+            }
             let author = commit.author();
             nodes.push(GraphNode {
                 id: id.hex(),
@@ -459,11 +466,82 @@ impl RepoContext {
                 files: paths.len(),
                 paths,
                 conflicted_paths: Vec::new(),
+                versions: 1,
                 edges: Vec::new(),
             });
         }
+        if !mutable_ids.is_empty() {
+            let start_ids: Vec<CommitId> = mutable_ids.iter().map(|(_, id)| id.clone()).collect();
+            let counts = Self::version_counts(repo, &start_ids, 60);
+            for (idx, id) in mutable_ids {
+                if let Some(&count) = counts.get(&id) {
+                    nodes[idx].versions = count;
+                }
+            }
+        }
         self.resolve_edges(repo, &mut nodes, &expression, max_elided)?;
         Ok(nodes)
+    }
+
+    /// Count evolution-log commits sharing each mutable commit's `change_id`,
+    /// using a single batched predecessor walk across all requested starts.
+    fn version_counts(
+        repo: &ReadonlyRepo,
+        start_ids: &[CommitId],
+        per_node_cap: usize,
+    ) -> std::collections::HashMap<CommitId, usize> {
+        if start_ids.is_empty() {
+            return std::collections::HashMap::new();
+        }
+        let max_entries = start_ids
+            .len()
+            .saturating_mul(per_node_cap)
+            .max(per_node_cap);
+        let entries: Vec<_> = jj_lib::evolution::walk_predecessors(repo, start_ids)
+            .take(max_entries)
+            .try_collect()
+            .block_on()
+            .unwrap_or_default();
+        let mut graph: std::collections::HashMap<CommitId, (ChangeId, Vec<CommitId>)> =
+            std::collections::HashMap::with_capacity(entries.len());
+        for entry in entries {
+            let preds = entry.predecessor_ids().to_vec();
+            let id = entry.commit.id().clone();
+            let change_id = entry.commit.change_id().clone();
+            graph.entry(id).or_insert((change_id, preds));
+        }
+        let mut counts = std::collections::HashMap::with_capacity(start_ids.len());
+        for start in start_ids {
+            let Some((target_change, _)) = graph.get(start) else {
+                counts.insert(start.clone(), 1);
+                continue;
+            };
+            let mut visited: HashSet<&CommitId> = HashSet::new();
+            let mut stack: Vec<&CommitId> = vec![start];
+            let mut count = 0usize;
+            while let Some(cur) = stack.pop() {
+                if !visited.insert(cur) {
+                    continue;
+                }
+                let Some((change_id, preds)) = graph.get(cur) else {
+                    continue;
+                };
+                if change_id != target_change {
+                    continue;
+                }
+                count += 1;
+                if count >= per_node_cap {
+                    break;
+                }
+                for p in preds {
+                    if !visited.contains(p) {
+                        stack.push(p);
+                    }
+                }
+            }
+            counts.insert(start.clone(), count.max(1));
+        }
+        counts
     }
 
     /// Resolve each node's parents to edges. A parent outside the revset is
@@ -712,10 +790,16 @@ impl RepoContext {
                 .try_collect()
                 .block_on()
                 .map_err(e)?;
-        Ok(entries
-            .iter()
-            .map(|entry| Version {
+        let mut out = Vec::with_capacity(entries.len());
+        for entry in &entries {
+            let empty = entry
+                .commit
+                .is_empty(repo.index())
+                .block_on()
+                .unwrap_or(false);
+            out.push(Version {
                 commit: entry.commit.id().hex(),
+                change: entry.commit.change_id().reverse_hex(),
                 description: first_line(entry.commit.description())
                     .unwrap_or("")
                     .to_owned(),
@@ -732,8 +816,11 @@ impl RepoContext {
                     .operation
                     .as_ref()
                     .is_some_and(|op| op.metadata().is_snapshot),
-            })
-            .collect())
+                empty,
+                conflict: entry.commit.has_conflict(),
+            });
+        }
+        Ok(out)
     }
 
     /// A revision as `jj show` prints it: its header and description, then

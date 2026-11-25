@@ -6,12 +6,166 @@ export const LANE = 22;
 export const PAD = 20;
 const BEND = 26; // vertical room an edge takes to change lanes
 
+function compareLatest(a, b) {
+  if (Boolean(a.hidden) !== Boolean(b.hidden)) return a.hidden ? 1 : -1;
+  const ta = a.time ? Date.parse(a.time) : NaN;
+  const tb = b.time ? Date.parse(b.time) : NaN;
+  if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return tb - ta;
+  if (Boolean(a.wc) !== Boolean(b.wc)) return a.wc ? -1 : 1;
+  return 0;
+}
+
+/**
+ * Group commits sharing the same jj `change` id so that collapsed changesets
+ * render as a single stacked card (the latest commit), with edges from and to
+ * tucked commits remapped onto the head commit. Expanded changesets emit all
+ * member commits present in `nodes` with their real DAG edges.
+ *
+ * @param {object[]} nodes
+ * @param {Set<string>} [expanded] change ids whose stacks are expanded
+ * @returns {object[]}
+ */
+export function stackChanges(nodes, expanded = new Set()) {
+  const groups = new Map();
+  const origIndex = new Map();
+  nodes.forEach((n, i) => {
+    origIndex.set(n.id, i);
+    const key = n.change || n.id;
+    let g = groups.get(key);
+    if (!g) {
+      g = [];
+      groups.set(key, g);
+    }
+    g.push(n);
+  });
+
+  const repById = new Map();
+  const groupMeta = new Map();
+  for (const [key, members] of groups) {
+    const ordered = members.length > 1 ? [...members].sort(compareLatest) : members;
+    const head = ordered[0];
+    const total = Math.max(ordered.length, ...ordered.map((m) => m.versions || 1));
+    const isExpanded = expanded.has(key) && total > 1;
+    groupMeta.set(key, { ordered, head, total, isExpanded });
+    for (const m of ordered) {
+      repById.set(m.id, isExpanded ? m.id : head.id);
+    }
+  }
+
+  const emitted = [];
+  const seenHead = new Set();
+  for (const n of nodes) {
+    const key = n.change || n.id;
+    const meta = groupMeta.get(key);
+    if (meta.isExpanded) {
+      const idx = meta.ordered.indexOf(n);
+      emitted.push({
+        ...n,
+        stackKey: key,
+        stackNodes: meta.ordered,
+        stackHeadId: meta.head.id,
+        stackIndex: idx,
+        stackTotal: meta.total,
+        stackExpanded: true,
+        edges: remapEdges(n.edges ?? [], n.id, repById),
+      });
+    } else if (!seenHead.has(key)) {
+      seenHead.add(key);
+      const allEdges = meta.ordered.flatMap((m) => m.edges ?? []);
+      emitted.push({
+        ...meta.head,
+        divergent: meta.head.divergent || meta.ordered.some((m) => m.divergent),
+        stackKey: key,
+        stackNodes: meta.ordered,
+        stackHeadId: meta.head.id,
+        stackIndex: 0,
+        stackTotal: meta.total,
+        stackExpanded: false,
+        edges: remapEdges(allEdges, meta.head.id, repById),
+      });
+    }
+  }
+
+  // Re-establish topological order (children before parents) if collapsing
+  // merged commits from different rows, preserving original order on ties.
+  const out = topoOrder(emitted, origIndex);
+  const rowOf = new Map(out.map((n, i) => [n.id, i]));
+  for (const n of out) {
+    const srcRow = rowOf.get(n.id);
+    n.edges = n.edges.filter((e) => e.to == null || (rowOf.has(e.to) && rowOf.get(e.to) > srcRow));
+  }
+  return out;
+}
+
+function remapEdges(rawEdges, selfId, repById) {
+  const byTarget = new Map();
+  const order = [];
+  for (const e of rawEdges) {
+    const to = e.to != null ? (repById.get(e.to) ?? e.to) : null;
+    if (to === selfId) continue;
+    const dedupKey = to != null ? `to:${to}` : `stub:${e.parent}`;
+    const existing = byTarget.get(dedupKey);
+    if (!existing) {
+      const copy = { ...e, to };
+      byTarget.set(dedupKey, copy);
+      order.push(dedupKey);
+    } else if (existing.indirect && !e.indirect) {
+      existing.indirect = false;
+      existing.parent = e.parent;
+    }
+  }
+  return order.map((k) => byTarget.get(k));
+}
+
+function topoOrder(nodes, origIndex) {
+  if (nodes.length <= 1) return nodes;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const indeg = new Map(nodes.map((n) => [n.id, 0]));
+  for (const n of nodes) {
+    for (const e of n.edges) {
+      if (e.to != null && byId.has(e.to)) {
+        indeg.set(e.to, indeg.get(e.to) + 1);
+      }
+    }
+  }
+  const ready = nodes.filter((n) => indeg.get(n.id) === 0);
+  const rank = (n) => origIndex.get(n.id) ?? 0;
+  ready.sort((a, b) => rank(a) - rank(b));
+
+  const out = [];
+  const placed = new Set();
+  while (ready.length) {
+    const cur = ready.shift();
+    if (placed.has(cur.id)) continue;
+    placed.add(cur.id);
+    out.push(cur);
+    for (const e of cur.edges) {
+      if (e.to == null || !byId.has(e.to) || placed.has(e.to)) continue;
+      const nextDeg = indeg.get(e.to) - 1;
+      indeg.set(e.to, nextDeg);
+      if (nextDeg === 0) {
+        const target = byId.get(e.to);
+        const r = rank(target);
+        let ins = ready.length;
+        for (let i = 0; i < ready.length; i++) {
+          if (rank(ready[i]) > r) { ins = i; break; }
+        }
+        ready.splice(ins, 0, target);
+      }
+    }
+  }
+  if (out.length < nodes.length) {
+    for (const n of nodes) if (!placed.has(n.id)) out.push(n);
+  }
+  return out;
+}
+
 /**
  * @param {{id: string, edges: {to: string|null, parent: string, indirect: boolean}[]}[]} nodes
- * @param {(node: object) => number} heightOf row height per node, so rows
- *   that matter less can be drawn smaller
+ * @param {(node: object) => (number | {height: number, anchor?: number})} heightOf row height
+ *   (or `{ height, anchor }` where `anchor` is the node dot's offset from the row top)
  * @returns {{
- *   pos: Map<string, {row: number, lane: number, reach: number, y: number, h: number}>,
+ *   pos: Map<string, {row: number, lane: number, reach: number, y: number, h: number, top: number, anchor: number}>,
  *   edges: {key: string, from: string, to: string|null, parent: string, indirect: boolean, track: number}[],
  *   lanes: number,
  *   height: number,
@@ -74,8 +228,10 @@ export function layout(nodes, heightOf = () => ROW) {
     }
     reach = Math.max(reach, rightmost());
     width = Math.max(width, reach + 1);
-    const h = heightOf(node);
-    pos.set(node.id, { row, lane, reach, y: bottom + h / 2, h });
+    const raw = heightOf(node);
+    const h = typeof raw === 'number' ? raw : raw.height;
+    const anchor = typeof raw === 'number' ? h / 2 : (raw.anchor ?? h / 2);
+    pos.set(node.id, { row, lane, reach, y: bottom + anchor, h, top: bottom, anchor });
     bottom += h;
   });
 
@@ -89,7 +245,7 @@ export function edgePath(edge, pos) {
   const a = pos.get(edge.from);
   const x1 = laneX(a.lane);
   const y1 = a.y;
-  if (edge.to == null) return `M${x1},${y1} L${x1},${y1 + a.h * 0.45}`;
+  if (edge.to == null) return `M${x1},${y1} L${x1},${y1 + Math.min(a.h, ROW) * 0.45}`;
   const b = pos.get(edge.to);
   const x2 = laneX(b.lane);
   const y2 = b.y;

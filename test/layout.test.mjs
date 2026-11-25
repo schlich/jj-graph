@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { distanceToPolyline, edgePath, layout } from '../public/layout.js';
+import { distanceToPolyline, edgePath, layout, stackChanges } from '../public/layout.js';
 
 const node = (id, ...parents) => ({ id, edges: parents.map((p) => ({ to: p, parent: p, indirect: false })) });
+const changeNode = (id, change, parents = [], extra = {}) => ({
+  id,
+  change,
+  edges: parents.map((p) => (typeof p === 'string' ? { to: p, parent: p, indirect: false } : p)),
+  ...extra,
+});
 
 test('a linear history stays in one lane', () => {
   const { pos, lanes } = layout([node('c', 'b'), node('b', 'a'), node('a')]);
@@ -63,6 +69,97 @@ test('rows can have their own heights', () => {
   assert.equal(pos.get('b').y - pos.get('a').y, 60);
   assert.equal(pos.get('c').y - pos.get('b').y, 45);
   assert.ok(height > pos.get('c').y + 15);
+});
+
+test('rows can anchor the node dot near the top of an expanded stack', () => {
+  const nodes = [node('a', 'b'), node('b')];
+  const { pos, height } = layout(nodes, (n) => (n.id === 'a' ? { height: 180, anchor: 33 } : 66));
+  assert.equal(pos.get('a').y, pos.get('a').top + 33);
+  assert.equal(pos.get('b').top, pos.get('a').top + 180);
+  assert.equal(pos.get('b').y, pos.get('b').top + 33);
+  assert.ok(height > pos.get('b').y + 33);
+});
+
+test('stackChanges collapses commits with the same change id to the latest commit', () => {
+  const nodes = [
+    changeNode('c_old', 'chg_x', ['base'], { time: '2026-01-01T00:00:00Z', divergent: true }),
+    changeNode('c_new', 'chg_x', ['base'], { time: '2026-01-02T00:00:00Z', divergent: true }),
+    changeNode('base', 'chg_base', []),
+  ];
+  const stacked = stackChanges(nodes);
+  assert.deepEqual(stacked.map((n) => n.id), ['c_new', 'base']);
+  assert.equal(stacked[0].stackTotal, 2);
+  assert.equal(stacked[0].stackExpanded, false);
+  assert.deepEqual(stacked[0].stackNodes.map((n) => n.id), ['c_new', 'c_old']);
+  // Edges from both commits are deduplicated to one edge to base.
+  assert.equal(stacked[0].edges.length, 1);
+  assert.equal(stacked[0].edges[0].to, 'base');
+});
+
+test('stackChanges prefers visible commits over hidden predecessors even if timestamps tie', () => {
+  const nodes = [
+    changeNode('c_hidden', 'chg_x', ['base'], { hidden: true, time: '2026-01-03T00:00:00Z' }),
+    changeNode('c_vis', 'chg_x', ['base'], { hidden: false, time: '2026-01-01T00:00:00Z' }),
+    changeNode('base', 'chg_base', []),
+  ];
+  const stacked = stackChanges(nodes);
+  assert.deepEqual(stacked.map((n) => n.id), ['c_vis', 'base']);
+  assert.deepEqual(stacked[0].stackNodes.map((n) => n.id), ['c_vis', 'c_hidden']);
+});
+
+test('stackChanges remaps child edges to the collapsed head and preserves topological order', () => {
+  const nodes = [
+    changeNode('c_new', 'chg_x', ['base'], { time: '2026-01-02T00:00:00Z' }),
+    changeNode('child_of_old', 'chg_child', ['c_old']),
+    changeNode('c_old', 'chg_x', ['base'], { time: '2026-01-01T00:00:00Z' }),
+    changeNode('base', 'chg_base', []),
+  ];
+  const stacked = stackChanges(nodes);
+  assert.deepEqual(stacked.map((n) => n.id), ['child_of_old', 'c_new', 'base']);
+  assert.deepEqual(stacked[0].edges.map((e) => e.to), ['c_new']);
+  // Layout stays clean with no dangling lanes.
+  const { lanes } = layout(stacked);
+  assert.equal(lanes, 1);
+});
+
+test('stackChanges removes self-loops and prefers direct edges when deduplicating', () => {
+  const nodes = [
+    changeNode('c_new', 'chg_x', ['c_old', { to: 'base', parent: 'p', indirect: true }], { time: '2026-01-02T00:00:00Z' }),
+    changeNode('c_old', 'chg_x', [{ to: 'base', parent: 'base', indirect: false }], { time: '2026-01-01T00:00:00Z' }),
+    changeNode('base', 'chg_base', []),
+  ];
+  const stacked = stackChanges(nodes);
+  assert.equal(stacked[0].edges.length, 1);
+  assert.equal(stacked[0].edges[0].to, 'base');
+  assert.equal(stacked[0].edges[0].indirect, false);
+});
+
+test('stackChanges expands duplicate change commits back into the DAG when expanded', () => {
+  const nodes = [
+    changeNode('c_new', 'chg_x', ['base'], { time: '2026-01-02T00:00:00Z' }),
+    changeNode('c_old', 'chg_x', ['base'], { time: '2026-01-01T00:00:00Z' }),
+    changeNode('base', 'chg_base', []),
+  ];
+  const expanded = stackChanges(nodes, new Set(['chg_x']));
+  assert.deepEqual(expanded.map((n) => n.id), ['c_new', 'c_old', 'base']);
+  assert.equal(expanded[0].stackExpanded, true);
+  assert.equal(expanded[0].stackIndex, 0);
+  assert.equal(expanded[1].stackExpanded, true);
+  assert.equal(expanded[1].stackIndex, 1);
+  assert.equal(expanded[1].stackHeadId, 'c_new');
+});
+
+test('stackChanges preserves evolog version counts on single-commit changes', () => {
+  const nodes = [
+    changeNode('c1', 'chg_x', ['base'], { versions: 4 }),
+    changeNode('base', 'chg_base', [], { versions: 1 }),
+  ];
+  const collapsed = stackChanges(nodes);
+  assert.equal(collapsed[0].stackTotal, 4);
+  assert.equal(collapsed[0].stackExpanded, false);
+  const expanded = stackChanges(nodes, new Set(['chg_x']));
+  assert.equal(expanded[0].stackTotal, 4);
+  assert.equal(expanded[0].stackExpanded, true);
 });
 
 test('distance to a polyline', () => {
