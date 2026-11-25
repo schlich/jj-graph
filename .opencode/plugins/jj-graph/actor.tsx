@@ -1,6 +1,8 @@
 // Solid bindings for the XState actors the views run (source.machine.ts,
 // view.machine.ts). @xstate/solid's v6 line targets Solid 2, and OpenCode
 // shares Solid 1.9 with its plugins, so this is the few lines it would be.
+// It is a .tsx file although it holds no JSX: OpenCode hands its shared Solid
+// only to .tsx modules, and a .ts one fails with "Cannot find package 'solid-js'".
 import { createSignal, onCleanup, type Accessor } from "solid-js"
 import type { AnyActorRef, SnapshotFrom } from "xstate"
 

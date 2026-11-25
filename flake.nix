@@ -116,7 +116,7 @@
             mkdir -p $out
             cd ../.opencode/plugins/jj-graph
             cp index.ts engine.ts model.ts rpc.ts tui.tsx layout.js gui-experimental.cjs $out/
-            cp actor.ts source.machine.ts view.machine.ts package.json $out/
+            cp actor.tsx source.machine.ts view.machine.ts package.json $out/
             ln -s ${opencode-plugin-modules}/node_modules $out/node_modules
             substituteInPlace $out/index.ts \
               --replace-fail 'const DEFAULT_COMMAND = "jj-graph"' \
