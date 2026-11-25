@@ -431,3 +431,89 @@ fn jjr_endpoints_docs_and_guardrails_on_dry_runs() {
         "docs must never mention Django"
     );
 }
+
+#[test]
+fn dag_lint_fixes_dry_run_cleanly_in_a_real_repo() {
+    let repo = TempRepo::new("dag-lint");
+    repo.write("base.txt", "base\n");
+    repo.jj(&["commit", "-m", "base"]);
+    repo.jj(&["bookmark", "create", "main", "-r", "@-"]);
+    repo.jj(&[
+        "config",
+        "set",
+        "--repo",
+        "revset-aliases.\"immutable_heads()\"",
+        "main",
+    ]);
+    repo.jj(&[
+        "config",
+        "set",
+        "--repo",
+        "revset-aliases.\"trunk()\"",
+        "main",
+    ]);
+
+    // Build a stack with a fixup! commit and a merge that redundantly lists main alongside its descendant.
+    repo.write("lib.rs", "pub fn answer() -> i32 { 41 }\n");
+    repo.write("lib_test.rs", "fn test_answer() {}\n");
+    repo.jj(&["commit", "-m", "feat: add answer"]);
+    let feat = repo.jj(&["log", "-r", "@-", "--no-graph", "-T", "change_id"]);
+    let feat = feat.trim().to_owned();
+
+    repo.write("lib.rs", "pub fn answer() -> i32 { 42 }\n");
+    repo.jj(&["commit", "-m", "fixup! feat: add answer"]);
+    let fixup = repo.jj(&["log", "-r", "@-", "--no-graph", "-T", "change_id"]);
+    let fixup = fixup.trim().to_owned();
+
+    // Redundant merge parent: main is already an ancestor of `feat`.
+    repo.jj(&["new", "main", &feat, "-m", "local: redundant merge"]);
+
+    let mut app = repo.app();
+    let diag = get(&mut app, "/api/jjr/diagnose", &[("revset", "all()")]).unwrap();
+    let list = diag["diagnostics"].as_array().unwrap();
+
+    let redundant = list
+        .iter()
+        .find(|d| d["code"] == "REDUNDANT_MERGE_PARENT")
+        .expect("should flag redundant merge parent");
+    let redundant_args: Vec<String> = redundant["suggestedArgs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+
+    let absorbable = list
+        .iter()
+        .find(|d| d["code"] == "ABSORBABLE_FIXUP")
+        .expect("should flag fixup! commit");
+    assert_eq!(absorbable["affectedChanges"][0].as_str().unwrap(), fixup);
+    let absorb_args: Vec<String> = absorbable["suggestedArgs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+
+    // Dry-run both suggested fixes and confirm both diagnostics clear.
+    let step1 = post(&mut app, "/api/dry", json!({ "args": redundant_args })).unwrap();
+    assert!(
+        !step1["state"]["jjr"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "REDUNDANT_MERGE_PARENT"),
+        "REDUNDANT_MERGE_PARENT should clear after dry-run rebase"
+    );
+
+    let step2 = post(&mut app, "/api/dry", json!({ "args": absorb_args })).unwrap();
+    assert!(
+        !step2["state"]["jjr"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "ABSORBABLE_FIXUP"),
+        "ABSORBABLE_FIXUP should clear after dry-run absorb"
+    );
+}
+

@@ -330,6 +330,12 @@ pub enum DiagnosticCode {
     MegamergeWithBookmark,
     MegamergeNotEmpty,
     MegamergeAsWorkingCopy,
+    RedundantMergeParent,
+    InteriorMerge,
+    OverlappingParallelArms,
+    UnevenArmBases,
+    UndescribedChange,
+    AbsorbableFixup,
     ConflictInPublishable,
     ConflictedChange,
     LossyMergeConfig,
@@ -356,6 +362,12 @@ impl DiagnosticCode {
             Self::MegamergeWithBookmark => "MEGAMERGE_WITH_BOOKMARK",
             Self::MegamergeNotEmpty => "MEGAMERGE_NOT_EMPTY",
             Self::MegamergeAsWorkingCopy => "MEGAMERGE_AS_WORKING_COPY",
+            Self::RedundantMergeParent => "REDUNDANT_MERGE_PARENT",
+            Self::InteriorMerge => "INTERIOR_MERGE",
+            Self::OverlappingParallelArms => "OVERLAPPING_PARALLEL_ARMS",
+            Self::UnevenArmBases => "UNEVEN_ARM_BASES",
+            Self::UndescribedChange => "UNDESCRIBED_CHANGE",
+            Self::AbsorbableFixup => "ABSORBABLE_FIXUP",
             Self::ConflictInPublishable => "CONFLICT_IN_PUBLISHABLE",
             Self::ConflictedChange => "CONFLICTED_CHANGE",
             Self::LossyMergeConfig => "LOSSY_MERGE_CONFIG",
@@ -1512,6 +1524,16 @@ impl JjrGraph {
                 diagnostics.extend(self.activation_diagnostics(c));
             }
 
+            // Transitive reduction: a merge commit should not list an ancestor of another parent.
+            if c.parents.len() >= 2 {
+                if let Some(d) = self.redundant_merge_parent_diagnostic(c) {
+                    diagnostics.push(d);
+                }
+                if let Some(d) = self.interior_merge_diagnostic(c) {
+                    diagnostics.push(d);
+                }
+            }
+
             // Empty non-working-copy, non-blueprint commit; an empty merge documents the merge.
             if c.current_commit.is_empty
                 && !c.is_working_copy
@@ -1531,6 +1553,47 @@ impl JjrGraph {
                     .args(["abandon", id])
                     .command(format!("jj abandon {s}")),
                 );
+            }
+
+            // Non-empty non-working-copy (or bookmarked) change left without a description.
+            if !c.current_commit.is_empty
+                && !is_megamerge
+                && c.current_commit.description.trim().is_empty()
+                && (!c.is_working_copy || !c.bookmarks.is_empty())
+            {
+                let bookmarked = !c.bookmarks.is_empty();
+                let message = if bookmarked {
+                    format!(
+                        "Bookmarked change {s} ({}) has edits but no description. Describe it before pushing.",
+                        c.bookmarks.join(", ")
+                    )
+                } else {
+                    format!(
+                        "Non-empty change {s} has no description. Describe its intent so the graph stays readable."
+                    )
+                };
+                diagnostics.push(
+                    GraphDiagnostic::new(
+                        if bookmarked {
+                            Severity::Warning
+                        } else {
+                            Severity::Info
+                        },
+                        DiagnosticCode::UndescribedChange,
+                        message,
+                        vec![id.to_owned()],
+                    )
+                    .command(format!("jj describe -r {s} -m \"...\"")),
+                );
+            }
+
+            // Fixup / autosquash change sitting above mutable work that owns its lines.
+            if !c.current_commit.is_empty
+                && !is_megamerge
+                && !is_conflicted
+                && let Some(d) = self.absorbable_fixup_diagnostic(c)
+            {
+                diagnostics.push(d);
             }
 
             // Bundle tests with behavior: a finished behavioral change carries its tests.
@@ -1590,6 +1653,9 @@ impl JjrGraph {
                 }
             }
         }
+
+        diagnostics.extend(self.overlapping_parallel_arms_diagnostics());
+        diagnostics.extend(self.uneven_arm_bases_diagnostics());
 
         let chain = self.longest_chain();
         if chain.len() > self.config.max_stack_depth
@@ -1717,6 +1783,393 @@ impl JjrGraph {
         out
     }
 
+    /// True when `ancestor_id` is reachable from `descendant_id` by following
+    /// one or more parent edges in the loaded graph.
+    fn is_strict_ancestor(&self, ancestor_id: &str, descendant_id: &str) -> bool {
+        if ancestor_id == descendant_id {
+            return false;
+        }
+        let mut visited: HashSet<&str> = HashSet::from([descendant_id]);
+        let mut stack: Vec<&str> = self
+            .by_change
+            .get(descendant_id)
+            .map(|c| c.parents.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        while let Some(id) = stack.pop() {
+            if id == ancestor_id {
+                return true;
+            }
+            if !visited.insert(id) {
+                continue;
+            }
+            if let Some(c) = self.by_change.get(id) {
+                stack.extend(c.parents.iter().map(String::as_str));
+            }
+        }
+        false
+    }
+
+    fn redundant_merge_parent_diagnostic(&self, c: &JjrChange) -> Option<GraphDiagnostic> {
+        let mut unique: Vec<&str> = Vec::new();
+        let mut redundant: Vec<&str> = Vec::new();
+        for p in &c.parents {
+            let ps = p.as_str();
+            if unique.contains(&ps) {
+                if !redundant.contains(&ps) {
+                    redundant.push(ps);
+                }
+            } else {
+                unique.push(ps);
+            }
+        }
+        let mut minimal: Vec<&str> = Vec::new();
+        for &p in &unique {
+            let covered = unique
+                .iter()
+                .any(|&other| other != p && self.is_strict_ancestor(p, other));
+            if covered {
+                if !redundant.contains(&p) {
+                    redundant.push(p);
+                }
+            } else {
+                minimal.push(p);
+            }
+        }
+        if redundant.is_empty() || minimal.is_empty() {
+            return None;
+        }
+        let id = c.change_id.as_str();
+        let s = short(id);
+        let red_shorts: Vec<&str> = redundant.iter().map(|p| short(p)).collect();
+        let keep_shorts: Vec<&str> = minimal.iter().map(|p| short(p)).collect();
+        let mut affected = vec![id.to_owned()];
+        affected.extend(redundant.iter().map(|p| (*p).to_owned()));
+
+        let mut args = vec!["rebase".to_owned(), "-s".to_owned(), id.to_owned()];
+        for &m in &minimal {
+            args.push("-o".to_owned());
+            args.push(m.to_owned());
+        }
+        let onto_cmd = minimal
+            .iter()
+            .map(|m| format!("-o {}", short(m)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        Some(
+            GraphDiagnostic::new(
+                Severity::Warning,
+                DiagnosticCode::RedundantMergeParent,
+                format!(
+                    "Merge {s} has redundant parent(s) {} already reachable through {}. Drop the redundant edge(s) to keep the DAG transitively reduced.",
+                    red_shorts.join(", "),
+                    keep_shorts.join(", ")
+                ),
+                affected,
+            )
+            .args(args)
+            .command(format!("jj rebase -s {s} {onto_cmd}")),
+        )
+    }
+
+    fn interior_merge_diagnostic(&self, c: &JjrChange) -> Option<GraphDiagnostic> {
+        let id = c.change_id.as_str();
+        let offending: Vec<&JjrChange> = self
+            .children_of(id)
+            .iter()
+            .filter_map(|ch| self.by_change.get(ch))
+            .filter(|ch| ch.zone == Zone::Mutable)
+            .filter(|ch| {
+                let has_mutable_children = self
+                    .children_of(&ch.change_id)
+                    .iter()
+                    .any(|gc| self.by_change.get(gc).is_some_and(|n| n.zone == Zone::Mutable));
+                // An unbookmarked leaf @ (or another workspace's empty scratchpad @)
+                // directly above a megamerge is the recommended integration workflow.
+                let is_allowed_tip_wc = (ch.is_working_copy
+                    || (!ch.workspaces.is_empty()
+                        && ch.current_commit.is_empty
+                        && ch.current_commit.description.trim().is_empty()))
+                    && ch.bookmarks.is_empty()
+                    && !has_mutable_children;
+                !is_allowed_tip_wc
+            })
+            .collect();
+        if offending.is_empty() {
+            return None;
+        }
+        let s = short(id);
+        let child_shorts: Vec<&str> = offending.iter().map(|ch| short(&ch.change_id)).collect();
+        let affected: Vec<String> = std::iter::once(id.to_owned())
+            .chain(offending.iter().map(|ch| ch.change_id.clone()))
+            .collect();
+        let command = if offending.len() == 1 {
+            format!("jj rebase -s {} -o <arm>", short(&offending[0].change_id))
+        } else {
+            format!("jj log -r '{s}::'")
+        };
+        Some(
+            GraphDiagnostic::new(
+                Severity::Warning,
+                DiagnosticCode::InteriorMerge,
+                format!(
+                    "Merge {s} sits inside mutable history with work stacked above it ({}). Keep merges at the tip as local megamerges, or rebase stacked work onto an arm.",
+                    child_shorts.join(", ")
+                ),
+                affected,
+            )
+            .command(command),
+        )
+    }
+
+    fn absorbable_fixup_diagnostic(&self, c: &JjrChange) -> Option<GraphDiagnostic> {
+        let title = c
+            .current_commit
+            .description
+            .lines()
+            .next()
+            .unwrap_or("");
+        let (explicit_fixup, wip_word) = fixup_title_kind(title);
+        if !explicit_fixup && !(wip_word && (!c.is_working_copy || !c.bookmarks.is_empty())) {
+            return None;
+        }
+        let id = c.change_id.as_str();
+        let anc_work: Vec<&JjrChange> = self
+            .mutable_ancestors_of(id)
+            .into_iter()
+            .filter(|a| a.change_id != id && !self.is_megamerge(a))
+            .collect();
+        if anc_work.is_empty() {
+            return None;
+        }
+        let anc_paths: HashSet<&str> = anc_work
+            .iter()
+            .flat_map(|a| a.current_commit.touched_paths.iter().map(String::as_str))
+            .collect();
+        let paths = &c.current_commit.touched_paths;
+        let all_in_ancestors = !paths.is_empty()
+            && paths.iter().all(|p| anc_paths.contains(p.as_str()));
+        if !explicit_fixup && !all_in_ancestors {
+            return None;
+        }
+
+        let s = short(id);
+        let d = GraphDiagnostic::new(
+            Severity::Info,
+            DiagnosticCode::AbsorbableFixup,
+            format!(
+                "Change {s} (\"{}\") looks like a fixup for an earlier change in the stack. Fold it into the change(s) that own those lines.",
+                c.title()
+            ),
+            vec![id.to_owned()],
+        );
+        let mutable_parents: Vec<&JjrChange> = c
+            .parents
+            .iter()
+            .filter_map(|p| self.by_change.get(p))
+            .filter(|p| p.zone == Zone::Mutable && !self.is_megamerge(p))
+            .collect();
+        Some(if all_in_ancestors {
+            d.args(["absorb", "--from", id])
+                .command(format!("jj absorb --from {s}"))
+        } else if mutable_parents.len() == 1 {
+            let pid = mutable_parents[0].change_id.as_str();
+            d.args(["squash", "--from", id, "--into", pid])
+                .command(format!("jj squash --from {s} --into {}", short(pid)))
+        } else {
+            d.command(format!("jj absorb --from {s}"))
+        })
+    }
+
+    fn overlapping_parallel_arms_diagnostics(&self) -> Vec<GraphDiagnostic> {
+        let work: Vec<&JjrChange> = self
+            .mutable()
+            .into_iter()
+            .filter(|c| !self.is_megamerge(c) && !self.is_scratchpad(c))
+            .collect();
+        let in_work: HashSet<&str> = work.iter().map(|c| c.change_id.as_str()).collect();
+        let tips: Vec<&JjrChange> = work
+            .iter()
+            .copied()
+            .filter(|c| {
+                !self
+                    .children_of(&c.change_id)
+                    .iter()
+                    .any(|ch| in_work.contains(ch.as_str()))
+            })
+            .collect();
+        if tips.len() < 2 {
+            return Vec::new();
+        }
+
+        let mut anc_map: HashMap<&str, IndexSet<&str>> = HashMap::new();
+        for t in &tips {
+            let set: IndexSet<&str> = self
+                .mutable_ancestors_of(&t.change_id)
+                .into_iter()
+                .map(|c| c.change_id.as_str())
+                .filter(|id| in_work.contains(id))
+                .collect();
+            anc_map.insert(t.change_id.as_str(), set);
+        }
+
+        let mut out = Vec::new();
+        let mut reported: HashSet<(Vec<String>, Vec<String>)> = HashSet::new();
+        for i in 0..tips.len() {
+            for j in (i + 1)..tips.len() {
+                let a = tips[i].change_id.as_str();
+                let b = tips[j].change_id.as_str();
+                let anc_a = &anc_map[a];
+                let anc_b = &anc_map[b];
+                let e1: Vec<&JjrChange> = anc_a
+                    .iter()
+                    .filter(|id| !anc_b.contains(*id))
+                    .filter_map(|id| self.by_change.get(*id))
+                    .collect();
+                let e2: Vec<&JjrChange> = anc_b
+                    .iter()
+                    .filter(|id| !anc_a.contains(*id))
+                    .filter_map(|id| self.by_change.get(*id))
+                    .collect();
+                let paths1: IndexSet<&str> = e1
+                    .iter()
+                    .flat_map(|c| c.current_commit.touched_paths.iter().map(String::as_str))
+                    .collect();
+                let overlap: IndexSet<&str> = e2
+                    .iter()
+                    .flat_map(|c| c.current_commit.touched_paths.iter().map(String::as_str))
+                    .filter(|p| paths1.contains(p))
+                    .collect();
+                if overlap.is_empty() {
+                    continue;
+                }
+                let touchers1: Vec<String> = e1
+                    .iter()
+                    .filter(|c| {
+                        c.current_commit
+                            .touched_paths
+                            .iter()
+                            .any(|p| overlap.contains(p.as_str()))
+                    })
+                    .map(|c| c.change_id.clone())
+                    .collect();
+                let touchers2: Vec<String> = e2
+                    .iter()
+                    .filter(|c| {
+                        c.current_commit
+                            .touched_paths
+                            .iter()
+                            .any(|p| overlap.contains(p.as_str()))
+                    })
+                    .map(|c| c.change_id.clone())
+                    .collect();
+                let mut k1 = touchers1.clone();
+                let mut k2 = touchers2.clone();
+                k1.sort();
+                k2.sort();
+                let key = if k1 <= k2 { (k1, k2) } else { (k2, k1) };
+                if !reported.insert(key) {
+                    continue;
+                }
+                let left = touchers1
+                    .iter()
+                    .map(|id| short(id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let right = touchers2
+                    .iter()
+                    .map(|id| short(id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let shown: Vec<&str> = overlap.iter().take(3).copied().collect();
+                let suffix = if overlap.len() > 3 {
+                    format!(" (+{} more)", overlap.len() - 3)
+                } else {
+                    String::new()
+                };
+                let affected: Vec<String> = touchers1.into_iter().chain(touchers2).collect();
+                out.push(GraphDiagnostic::new(
+                    Severity::Info,
+                    DiagnosticCode::OverlappingParallelArms,
+                    format!(
+                        "Parallel arms ({left}) and ({right}) both edit {}{suffix}. Stack them if one depends on the other, or extract a shared base change.",
+                        shown.join(", ")
+                    ),
+                    affected,
+                ));
+            }
+        }
+        out
+    }
+
+    fn uneven_arm_bases_diagnostics(&self) -> Vec<GraphDiagnostic> {
+        // When trunk() resolves, RootBehindTrunk already flags every root off trunk().
+        if self.trunk().is_some() {
+            return Vec::new();
+        }
+        let mut groups: IndexMap<&str, Vec<&str>> = IndexMap::new();
+        for c in self.mutable() {
+            if self.is_megamerge(c) || self.is_scratchpad(c) || c.parents.len() != 1 {
+                continue;
+            }
+            let p = c.parents[0].as_str();
+            if self.by_change.get(p).is_some_and(|n| n.zone == Zone::Immutable) {
+                groups.entry(p).or_default().push(c.change_id.as_str());
+            }
+        }
+        if groups.len() < 2 {
+            return Vec::new();
+        }
+        let bases: Vec<&str> = groups.keys().copied().collect();
+        let newest = bases.iter().copied().find(|&cand| {
+            bases
+                .iter()
+                .all(|&other| other == cand || self.is_strict_ancestor(other, cand))
+        });
+        let details: Vec<String> = groups
+            .iter()
+            .map(|(base, roots)| {
+                let rs: Vec<&str> = roots.iter().map(|r| short(r)).collect();
+                format!("{} on {}", rs.join(", "), short(base))
+            })
+            .collect();
+        let affected: Vec<String> = groups
+            .values()
+            .flat_map(|rs| rs.iter().map(|r| (*r).to_owned()))
+            .collect();
+        let mut d = GraphDiagnostic::new(
+            Severity::Info,
+            DiagnosticCode::UnevenArmBases,
+            format!(
+                "Parallel mutable roots fork from different immutable bases ({}). Rebase them onto a common base so arms share one baseline.",
+                details.join("; ")
+            ),
+            affected,
+        );
+        if let Some(target) = newest {
+            let lagging: Vec<&str> = groups
+                .iter()
+                .filter(|&(&base, _)| base != target)
+                .flat_map(|(_, roots)| roots.iter().copied())
+                .collect();
+            let mut args = vec!["rebase".to_owned()];
+            for &r in &lagging {
+                args.push("-s".to_owned());
+                args.push(r.to_owned());
+            }
+            args.push("-o".to_owned());
+            args.push(target.to_owned());
+            let srcs = lagging
+                .iter()
+                .map(|r| format!("-s {}", short(r)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            d = d
+                .args(args)
+                .command(format!("jj rebase {srcs} -o {}", short(target)));
+        }
+        vec![d]
+    }
+
     /// A compact health summary.
     pub fn summary(&self) -> GraphSummary {
         let diagnostics = self.diagnose();
@@ -1756,6 +2209,18 @@ impl JjrGraph {
             },
         }
     }
+}
+
+/// Classify a change's first line as `(explicit_autosquash_prefix, bare_wip_or_fixup_word)`.
+fn fixup_title_kind(title: &str) -> (bool, bool) {
+    let lower = title.trim().to_ascii_lowercase();
+    let explicit = lower.starts_with("fixup!")
+        || lower.starts_with("squash!")
+        || lower.starts_with("amend!")
+        || lower.starts_with("fixup:")
+        || lower.starts_with("squash:");
+    let wip_word = matches!(lower.as_str(), "fixup" | "squash" | "wip" | "tmp");
+    (explicit, wip_word)
 }
 
 #[cfg(test)]

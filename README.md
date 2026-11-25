@@ -288,9 +288,11 @@ jj-graph reads, so it does not depend on jj-lib itself:
   of your work (single change, shallow stack, parallel arms, megamerge, resting)
   with its publishing rule, and diagnostics with dry-runnable fixes for
   structural-above-behavioral order, activation switches that are not on top or
-  not tiny, edited megamerges, clean conflict resolution, behavior without
-  tests, arms based on an old trunk, deep stacks, divergence, and Git features
-  jj does not support (submodules, LFS, `.gitattributes`, hooks).
+  not tiny, edited megamerges, redundant merge parents, interior merges,
+  overlapping parallel arms, uneven arm bases, undescribed changes, absorbable
+  fixups, clean conflict resolution, behavior without tests, arms based on an
+  old trunk, deep stacks, divergence, and Git features jj does not support
+  (submodules, LFS, `.gitattributes`, hooks).
 - **Verification and publishing (`jj-graph`, `jjr::runner`)**: **Verify
   stack** runs `jj fix` and the verify command (`jj run --ignore-changes`) in
   every mutable revision as operations it never keeps; the Publishing Gate

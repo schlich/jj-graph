@@ -651,7 +651,7 @@ fn tools() -> Vec<Tool> {
         tool(
             "diagnose",
             "Diagnose the graph",
-            "The jjr reading of the graph: its canonical shape, diagnostics with dry-runnable fixes (structural changes above behavioral ones, edited megamerges, conflicts, arms based on an old trunk, deep stacks, Git features jj ignores), suggested recipes, and a short narrated summary.".into(),
+            "The jjr reading of the graph: its canonical shape, diagnostics with dry-runnable fixes (structural changes above behavioral ones, edited megamerges, redundant merge parents, interior merges, overlapping parallel arms, uneven arm bases, undescribed changes, absorbable fixups, conflicts, arms based on an old trunk, deep stacks, Git features jj ignores), suggested recipes, and a short narrated summary.".into(),
             json!({ "type": "object", "properties": { "revset": revset, "at": at } }),
             true, false, None, true,
         ),

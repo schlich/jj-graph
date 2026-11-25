@@ -25,6 +25,7 @@ use jjr::graph::JjrChange;
 use jjr::graph::JjrGraph;
 use jjr::graph::PreflightFacts;
 use jjr::graph::PreflightRow;
+use jjr::graph::Severity;
 use jjr::graph::TreeConflict;
 use jjr::graph::TrunkFact;
 use jjr::types::ChangeIntent;
@@ -500,3 +501,247 @@ fn classify_shape_maps_the_mutable_zone_onto_the_canonical_dag_shapes() {
         assert!(!canonical_shape(shape).publishing.is_empty(), "{shape}");
     }
 }
+
+#[test]
+fn dag_structure_lint_rules_cover_merges_parallel_arms_bases_descriptions_and_fixups() {
+    let codes = |g: &JjrGraph| g.diagnose().into_iter().map(|d| d.code).collect::<Vec<_>>();
+    let find = |g: &JjrGraph, code: DiagnosticCode| -> GraphDiagnostic {
+        g.diagnose()
+            .into_iter()
+            .find(|d| d.code == code)
+            .unwrap_or_else(|| panic!("no {code} diagnostic"))
+    };
+    let args = |d: GraphDiagnostic| d.suggested_args.unwrap_or_default();
+
+    // 1. RedundantMergeParent: transitive reduction on merge commits.
+    let redundant_trunk = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["a.rs", "a_test.rs"]),
+        change("pppppppp", &["kkkkkkkk", "mmmmmmmm"]).empty(),
+    ]);
+    let d = find(&redundant_trunk, DiagnosticCode::RedundantMergeParent);
+    assert_eq!(d.severity, Severity::Warning);
+    assert_eq!(d.affected_changes, ["pppppppp", "kkkkkkkk"]);
+    assert_eq!(args(d), ["rebase", "-s", "pppppppp", "-o", "mmmmmmmm"]);
+
+    let redundant_three = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["a.rs", "a_test.rs"]),
+        change("nnnnnnnn", &["mmmmmmmm"]).paths(&["b.rs", "b_test.rs"]),
+        change("oooooooo", &["kkkkkkkk"]).paths(&["c.rs", "c_test.rs"]),
+        change("pppppppp", &["mmmmmmmm", "nnnnnnnn", "oooooooo"]).empty(),
+    ]);
+    assert_eq!(
+        args(find(&redundant_three, DiagnosticCode::RedundantMergeParent)),
+        ["rebase", "-s", "pppppppp", "-o", "nnnnnnnn", "-o", "oooooooo"]
+    );
+
+    let clean_merge = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["a.rs", "a_test.rs"]),
+        change("nnnnnnnn", &["kkkkkkkk"]).paths(&["b.rs", "b_test.rs"]),
+        change("pppppppp", &["mmmmmmmm", "nnnnnnnn"]).empty(),
+    ]);
+    assert!(!codes(&clean_merge).contains(&DiagnosticCode::RedundantMergeParent));
+
+    // 2. InteriorMerge: committed or bookmarked work above a merge, while
+    // allowing an unbookmarked leaf @ (or another workspace's scratchpad) on a megamerge.
+    let interior = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["a.rs", "a_test.rs"]),
+        change("nnnnnnnn", &["kkkkkkkk"]).paths(&["b.rs", "b_test.rs"]),
+        change("pppppppp", &["mmmmmmmm", "nnnnnnnn"]).empty(),
+        change("qqqqqqqq", &["pppppppp"]).paths(&["c.rs", "c_test.rs"]),
+    ]);
+    let d = find(&interior, DiagnosticCode::InteriorMerge);
+    assert_eq!(d.severity, Severity::Warning);
+    assert_eq!(d.affected_changes, ["pppppppp", "qqqqqqqq"]);
+    assert!(d.suggested_args.is_none());
+
+    let bookmarked_wc_above_merge = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["a.rs", "a_test.rs"]),
+        change("nnnnnnnn", &["kkkkkkkk"]).paths(&["b.rs", "b_test.rs"]),
+        change("pppppppp", &["mmmmmmmm", "nnnnnnnn"]).empty(),
+        change("qqqqqqqq", &["pppppppp"])
+            .working_copy()
+            .bookmarks(&["feat/bad"])
+            .paths(&["c.rs", "c_test.rs"]),
+    ]);
+    assert!(codes(&bookmarked_wc_above_merge).contains(&DiagnosticCode::InteriorMerge));
+
+    let leaf_wc_above_merge = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["a.rs", "a_test.rs"]),
+        change("nnnnnnnn", &["kkkkkkkk"]).paths(&["b.rs", "b_test.rs"]),
+        change("pppppppp", &["mmmmmmmm", "nnnnnnnn"]).empty(),
+        change("qqqqqqqq", &["pppppppp"])
+            .working_copy()
+            .paths(&["a.rs"]),
+        change("rrrrrrrr", &["pppppppp"])
+            .workspaces(&["agent-2"])
+            .empty()
+            .description(""),
+    ]);
+    assert!(!codes(&leaf_wc_above_merge).contains(&DiagnosticCode::InteriorMerge));
+
+    // 3. OverlappingParallelArms: independent arms editing the same file,
+    // excluding shared ancestors and deduplicating forked sub-tips.
+    let overlapping = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["src/shared.rs", "tests/a.rs"]),
+        change("nnnnnnnn", &["kkkkkkkk"]).paths(&["src/shared.rs", "tests/b.rs"]),
+    ]);
+    let d = find(&overlapping, DiagnosticCode::OverlappingParallelArms);
+    assert_eq!(d.severity, Severity::Info);
+    assert_eq!(d.affected_changes, ["mmmmmmmm", "nnnnnnnn"]);
+    assert!(d.message.contains("src/shared.rs"));
+
+    let shared_base_clean = graph(vec![
+        trunk(),
+        change("llllllll", &["kkkkkkkk"]).paths(&["src/shared.rs", "tests/shared.rs"]),
+        change("mmmmmmmm", &["llllllll"]).paths(&["src/a.rs", "tests/a.rs"]),
+        change("nnnnnnnn", &["llllllll"]).paths(&["src/b.rs", "tests/b.rs"]),
+    ]);
+    assert!(!codes(&shared_base_clean).contains(&DiagnosticCode::OverlappingParallelArms));
+
+    let forked_dedup = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["src/shared.rs", "tests/m.rs"]),
+        change("nnnnnnnn", &["kkkkkkkk"]).paths(&["src/shared.rs", "tests/n.rs"]),
+        change("oooooooo", &["nnnnnnnn"]).paths(&["src/o.rs", "tests/o.rs"]),
+        change("pppppppp", &["nnnnnnnn"]).paths(&["src/p.rs", "tests/p.rs"]),
+    ]);
+    let overlap_count = forked_dedup
+        .diagnose()
+        .into_iter()
+        .filter(|d| d.code == DiagnosticCode::OverlappingParallelArms)
+        .count();
+    assert_eq!(overlap_count, 1);
+
+    // 4. UnevenArmBases: fires when trunk() is unresolved and roots sit on
+    // different immutable bases; stays quiet when trunk() is resolved.
+    let uneven_ordered = JjrGraph::new(
+        vec![
+            change("jjjjjjjj", &[]).immutable().description("base 1"),
+            change("kkkkkkkk", &["jjjjjjjj"])
+                .immutable()
+                .description("base 2"),
+            change("mmmmmmmm", &["jjjjjjjj"]).paths(&["a.rs", "a_test.rs"]),
+            change("nnnnnnnn", &["kkkkkkkk"]).paths(&["b.rs", "b_test.rs"]),
+        ],
+        JjrRepoConfig::default(),
+        None,
+    );
+    let d = find(&uneven_ordered, DiagnosticCode::UnevenArmBases);
+    assert_eq!(d.severity, Severity::Info);
+    assert_eq!(args(d), ["rebase", "-s", "mmmmmmmm", "-o", "kkkkkkkk"]);
+
+    let uneven_unrelated = JjrGraph::new(
+        vec![
+            change("jjjjjjjj", &[]).immutable().description("branch a"),
+            change("kkkkkkkk", &[]).immutable().description("branch b"),
+            change("mmmmmmmm", &["jjjjjjjj"]).paths(&["a.rs", "a_test.rs"]),
+            change("nnnnnnnn", &["kkkkkkkk"]).paths(&["b.rs", "b_test.rs"]),
+        ],
+        JjrRepoConfig::default(),
+        None,
+    );
+    let d = find(&uneven_unrelated, DiagnosticCode::UnevenArmBases);
+    assert!(d.suggested_args.is_none());
+
+    // Orthogonal to RootBehindTrunk when trunk() IS resolved.
+    let with_trunk = JjrGraph::new(
+        vec![
+            change("jjjjjjjj", &[]).immutable().description("old trunk"),
+            trunk_at("kkkkkkkk", &["jjjjjjjj"]),
+            change("mmmmmmmm", &["jjjjjjjj"]).paths(&["a.rs", "a_test.rs"]),
+            change("nnnnnnnn", &["kkkkkkkk"]).paths(&["b.rs", "b_test.rs"]),
+        ],
+        JjrRepoConfig::default(),
+        Some(preflight()),
+    );
+    assert!(codes(&with_trunk).contains(&DiagnosticCode::RootBehindTrunk));
+    assert!(!codes(&with_trunk).contains(&DiagnosticCode::UnevenArmBases));
+
+    // 5. UndescribedChange: non-empty non-@ or bookmarked change without description,
+    // never colliding with EmptyNonBlueprintChange or unbookmarked @.
+    let undescribed = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"])
+            .description("")
+            .paths(&["a.rs", "a_test.rs"]),
+        change("nnnnnnnn", &["mmmmmmmm"])
+            .working_copy()
+            .description("")
+            .paths(&["b.rs"]),
+        change("oooooooo", &["kkkkkkkk"])
+            .empty()
+            .description(""),
+    ]);
+    let und: Vec<GraphDiagnostic> = undescribed
+        .diagnose()
+        .into_iter()
+        .filter(|d| d.code == DiagnosticCode::UndescribedChange)
+        .collect();
+    assert_eq!(und.len(), 1);
+    assert_eq!(und[0].severity, Severity::Info);
+    assert_eq!(und[0].affected_changes, ["mmmmmmmm"]);
+    assert!(codes(&undescribed).contains(&DiagnosticCode::EmptyNonBlueprintChange));
+
+    let undescribed_bookmarked_wc = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"])
+            .working_copy()
+            .bookmarks(&["feat/wip"])
+            .description("")
+            .paths(&["a.rs", "a_test.rs"]),
+    ]);
+    let d = find(&undescribed_bookmarked_wc, DiagnosticCode::UndescribedChange);
+    assert_eq!(d.severity, Severity::Warning);
+
+    // 6. AbsorbableFixup: autosquash prefixes and non-@ wip commits touching ancestor files.
+    let fixup_absorb = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["src/parser.rs", "tests/parser.rs"]),
+        change("nnnnnnnn", &["mmmmmmmm"])
+            .description("fixup! feat: parser")
+            .paths(&["src/parser.rs"]),
+    ]);
+    assert_eq!(
+        args(find(&fixup_absorb, DiagnosticCode::AbsorbableFixup)),
+        ["absorb", "--from", "nnnnnnnn"]
+    );
+
+    let squash_new_file = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["src/parser.rs", "tests/parser.rs"]),
+        change("nnnnnnnn", &["mmmmmmmm"])
+            .description("squash! feat: parser")
+            .paths(&["src/extra.rs"]),
+    ]);
+    assert_eq!(
+        args(find(&squash_new_file, DiagnosticCode::AbsorbableFixup)),
+        ["squash", "--from", "nnnnnnnn", "--into", "mmmmmmmm"]
+    );
+
+    let wip_wc_ignored = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["src/parser.rs", "tests/parser.rs"]),
+        change("nnnnnnnn", &["mmmmmmmm"])
+            .working_copy()
+            .description("wip")
+            .paths(&["src/parser.rs"]),
+    ]);
+    assert!(!codes(&wip_wc_ignored).contains(&DiagnosticCode::AbsorbableFixup));
+
+    let wip_non_wc_new_file_ignored = graph(vec![
+        trunk(),
+        change("mmmmmmmm", &["kkkkkkkk"]).paths(&["src/parser.rs", "tests/parser.rs"]),
+        change("nnnnnnnn", &["mmmmmmmm"])
+            .description("wip")
+            .paths(&["src/brand_new.rs"]),
+    ]);
+    assert!(!codes(&wip_non_wc_new_file_ignored).contains(&DiagnosticCode::AbsorbableFixup));
+}
+
